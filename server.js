@@ -5,34 +5,46 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS para Railway
+// Lista de orígenes permitidos
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:3000',
+  'https://jetzan.github.io'
+];
+
+// Configuración de CORS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    'https://jetzan.github.io/',
-    credentials: true
+  origin: function (origin, callback) {
+    // Permitir peticiones sin origin (ej. Postman) o si está en la lista
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
 }));
 
 app.use(express.json());
 
 // ✅ HEALTH CHECK REQUERIDO PARA RAILWAY
 app.get('/health', (req, res) => {
-    res.status(200).json({ 
-        status: 'OK', 
-        message: 'NovaHogar API is running',
-        timestamp: new Date().toISOString()
-    });
+  res.status(200).json({
+    status: 'OK',
+    message: 'NovaHogar API is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.get('/', (req, res) => {
-    res.json({ 
-        message: 'NovaHogar API',
-        version: '1.0.0',
-        endpoints: {
-            auth: '/api/auth',
-            products: '/api/products',
-            cart: '/api/cart'
-        }
-    });
+  res.json({
+    message: 'NovaHogar API',
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      products: '/api/products',
+      cart: '/api/cart'
+    }
+  });
 });
 
 // Rutas
@@ -48,12 +60,11 @@ app.use('/api/coupons', require('./routes/couponsRoutes'));
 
 // 404 Handler
 app.use((req, res) => {
-    res.status(404).json({ error: 'Ruta no encontrada' });
+  res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
 // Iniciar servidor
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor en puerto ${PORT}`);
-    console.log("📍 Health: https://backend-final-o904.onrender.com/health");
+  console.log(`🚀 Servidor en puerto ${PORT}`);
+  console.log("📍 Health: https://backend-final-o904.onrender.com/health");
 });
-
