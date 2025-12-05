@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 3000;
 // CORS para Railway
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    'https://jetzan.github.io/',
     credentials: true
 }));
 
@@ -55,3 +56,4 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor en puerto ${PORT}`);
     console.log("📍 Health: https://backend-final-o904.onrender.com/health");
 });
+
