@@ -1,8 +1,7 @@
-// controllers/auth.controller.js (CORREGIDO)
+// controllers/auth.controller.js
 const bcrypt = require('bcryptjs');
 const https = require('https');
 const { generateToken } = require('../middleware/jwt.middleware');
-// ⚠️ Importar las funciones de intentos fallidos de UserModel
 const UserModel = require('../models/UserModel'); 
 const { enviarCorreoReset } = require('../utils/emailService');
 const crypto = require('crypto');
@@ -36,15 +35,20 @@ exports.login = async (req, res) => {
 
     // 3. Verificar existencia de usuario
     if (!user) {
-        // No existe el usuario, no se registra intento
         return res.status(401).json({ error: "Credenciales inválidas" });
+    }
+
+    // ⚠️ Validar que el hash sea bcrypt válido
+    if (!user.passwd || !user.passwd.startsWith("$2b$")) {
+        return res.status(500).json({ 
+            error: "Contraseña inválida en base de datos. Reinsertar usuario con hash correcto." 
+        });
     }
 
     // 4. Verificar contraseña
     const isMatch = await bcrypt.compare(password, user.passwd);
 
     if (!isMatch) {
-        // 5. Registrar intento fallido en la DB
         await UserModel.incrementLoginAttempts(nombre); 
         return res.status(401).json({ error: "Credenciales inválidas" });
     }
@@ -52,29 +56,22 @@ exports.login = async (req, res) => {
     // 6. Login exitoso: Resetear intentos en la DB
     await UserModel.resetLoginAttempts(nombre);
 
-    // Generar JWT (Stateless)
+    // Generar JWT
     const token = generateToken(user.id, user.nombre, user.tipo);
 
     res.json({
         mensaje: "Login exitoso",
-        token: token,
+        token,
         userId: user.id,
         userNombre: user.nombre,
         userTipo: user.tipo,
     });
 };
 
-
 // POST /api/auth/logout
 exports.logout = async (req, res) => {
-    // Si usas JWT (como en tu middleware), el logout es solo una confirmación en el cliente.
-    // Si usas el antiguo middleware de sesiones en memoria (auth.middleware.js), debes eliminar la sesión:
-    // deleteSession(req.token); 
-    
-    // Asumo que estás usando el middleware JWT, por lo que esta acción es cosmética
     res.json({ mensaje: 'Sesión cerrada' });
 };
-
 
 // POST /api/auth/captcha
 exports.checkCaptcha = async (req, res) => {
@@ -91,21 +88,14 @@ exports.checkCaptcha = async (req, res) => {
         const data = await new Promise((resolve, reject) => {
             https.get(verificationUrl, (response) => {
                 let data = '';
-                response.on('data', (chunk) => {
-                    data += chunk;
-                });
-                response.on('end', () => {
-                    resolve(JSON.parse(data));
-                });
-            }).on('error', (err) => {
-                reject(err);
-            });
+                response.on('data', (chunk) => { data += chunk; });
+                response.on('end', () => { resolve(JSON.parse(data)); });
+            }).on('error', (err) => { reject(err); });
         });
 
-        if (data.success && data.score >= 0.5) { // Puedes ajustar el score de confianza
+        if (data.success && (data.score === undefined || data.score >= 0.5)) {
             res.json({ success: true, mensaje: 'Verificación exitosa' });
         } else {
-            // console.log('ReCAPTCHA falló:', data); // Útil para depuración
             res.status(401).json({ success: false, mensaje: 'Verificación fallida (bajo score o error)' });
         }
     } catch (error) {
@@ -129,6 +119,11 @@ exports.createUser = async (req, res) => {
         }
 
         const contraseñaHash = await bcrypt.hash(password, 10);
+
+        if (!contraseñaHash.startsWith("$2b$")) {
+            return res.status(500).json({ error: "Error generando hash de contraseña" });
+        }
+
         const id_insertado = await UserModel.createUser(nombre, correo, contraseñaHash, pais);
 
         res.status(201).json({ 
@@ -151,31 +146,25 @@ exports.forgotPassword = async (req, res) => {
         const user = await UserModel.getUserByCorreo(correo);
         if (!user) return res.status(404).json({ mensaje: 'Si la cuenta existe, se enviará un correo.' });
 
-        // 1. Generar token
         const resetToken = crypto.randomBytes(32).toString('hex');
-        const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hora de validez
+        const expiresAt = Date.now() + (60 * 60 * 1000);
 
-        // 2. Limpiar tokens antiguos del usuario y guardar el nuevo
         await PasswordResetModel.deleteByUserId(user.id);
         await PasswordResetModel.createToken(resetToken, user.id, expiresAt);
 
-        // 3. Enviar correo (puede fallar, pero el usuario no debe saberlo por seguridad)
         try {
             await enviarCorreoReset(correo, user.nombre, resetToken);
         } catch (mailError) {
             console.error('Error enviando correo de recuperación:', mailError);
-            // No devolver 500 para evitar enumeración de usuarios
         }
 
-        // Devolver una respuesta genérica por seguridad
-        // En entorno de desarrollo se puede devolver el token para prueba:
         if (process.env.NODE_ENV === 'development') {
             return res.json({ mensaje: 'Correo de recuperación enviado', token: resetToken });
         }
 
         return res.json({ mensaje: 'Correo de recuperación enviado' });
     } catch (error) {
-        console.error('Error en forgotPassword, posible fallo de DB o EmailService:', error.message);
+        console.error('Error en forgotPassword:', error.message);
         return res.status(500).json({ error: 'Error interno del servidor. No se pudo procesar la solicitud.' });
     }
 };
@@ -189,7 +178,6 @@ exports.resetPassword = async (req, res) => {
         const entry = await PasswordResetModel.findByToken(token);
         if (!entry) return res.status(400).json({ error: 'Token inválido o expirado' });
 
-        // La columna expires_at debe ser un timestamp o datetime
         if (new Date(entry.expires_at).getTime() < Date.now()) {
             await PasswordResetModel.deleteByToken(token);
             return res.status(400).json({ error: 'Token expirado' });
@@ -198,7 +186,6 @@ exports.resetPassword = async (req, res) => {
         const hashed = await bcrypt.hash(nuevaPassword, 10);
         const updated = await UserModel.updatePassword(entry.user_id, hashed);
 
-        // Consumir token
         await PasswordResetModel.deleteByToken(token);
 
         if (updated === 0) return res.status(500).json({ error: 'No se pudo actualizar la contraseña' });
