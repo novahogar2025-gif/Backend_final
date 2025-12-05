@@ -28,7 +28,7 @@ async function setSuscritoByCorreo(correo, valor) {
 async function createUser(nombre, correo, contraseñaHash, pais) {
     const [result] = await pool.query(
         'INSERT INTO usuarios (nombre, correo, passwd, tipo, pais) VALUES (?, ?, ?, ?, ?)',
-        [nombre, correo, contraseñaHash, "cliente", pais]
+        [nombre, correo, contraseñaHash, tipo, pais]
     );
     return result.insertId;
 }
@@ -120,4 +120,5 @@ module.exports = {
     // Exportaciones de seguridad
     incrementLoginAttempts,
     resetLoginAttempts,
+
 };
