@@ -25,10 +25,10 @@ async function setSuscritoByCorreo(correo, valor) {
 }
 
 // Insertar nuevo usuario (con contraseña ya hasheada)
-async function createUser(nombre, correo, contraseñaHash, pais) {
+async function createUser(nombre, correo, contraseñaHash, pais, tipo = 'cliente') {
     const [result] = await pool.query(
         'INSERT INTO usuarios (nombre, correo, passwd, tipo, pais) VALUES (?, ?, ?, ?, ?)',
-        [nombre, correo, contraseñaHash, tipo, pais]
+        [nombre, correo, contraseñaHash, tipo, pais]  // <-- Usar el parámetro 'tipo'
     );
     return result.insertId;
 }
@@ -122,3 +122,4 @@ module.exports = {
     resetLoginAttempts,
 
 };
+
