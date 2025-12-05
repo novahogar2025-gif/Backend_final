@@ -6,7 +6,7 @@ const CouponModel = require('../models/CuponModel');
 const UserModel = require('../models/UserModel');
 const { generarNotaCompraPDF } = require('../utils/pdfGenerator');
 const { enviarCorreoCompra } = require('../utils/emailService');
-
+const pool = require('../db/conexion.js');
 // POST /api/purchase/process - Procesar compra
 exports.processPurchase = async (req, res) => {
     try {
@@ -234,4 +234,5 @@ exports.finalizePurchase = async (req, res) => {
         // 10. Liberar la conexión
         if (conn) conn.release();
     }
+
 };
