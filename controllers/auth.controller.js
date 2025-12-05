@@ -116,18 +116,24 @@ exports.createUser = async (req, res) => {
             return res.status(500).json({ error: "Error generando hash de contraseña" });
         }
 
-        // 👇 ahora pasamos el tipo, por defecto 'cliente'
+        // 👇 VALIDACIÓN MEJORADA: Solo "admin" se guarda como admin, todo lo demás como "cliente"
+        const tipoUsuario = (tipo === "admin") ? "admin" : "cliente";
+        
+        console.log('DEBUG - Tipo recibido:', tipo);
+        console.log('DEBUG - Tipo que se guardará:', tipoUsuario);
+
         const id_insertado = await UserModel.createUser(
             nombre,
             correo,
             contraseñaHash,
             pais,
-            tipo || 'cliente'
+            tipoUsuario  // <-- Pasar el tipo validado
         );
 
         res.status(201).json({ 
             mensaje: 'Usuario registrado', 
-            id_insertado 
+            id_insertado,
+            tipo: tipoUsuario  // <-- Devolver el tipo que se guardó
         });
 
     } catch (error) {
@@ -195,3 +201,4 @@ exports.resetPassword = async (req, res) => {
         res.status(500).json({ error: 'Error interno' });
     }
 };
+
