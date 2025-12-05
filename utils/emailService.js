@@ -96,7 +96,7 @@ async function enviarCorreoReset(destino, nombre, resetToken) {
     <p>${process.env.EMPRESA_NOMBRE} - ${process.env.EMPRESA_LEMA}</p>`;
 
   return transporter.sendMail({
-    from: process.env.EMAIL_USER,
+    from: process.env.EMAIL_FROM,
     to: destino,
     subject,
     html
@@ -108,4 +108,5 @@ module.exports = {
   enviarCorreoSuscripcion,
   enviarCorreoCompra,
   enviarCorreoReset
+
 };
