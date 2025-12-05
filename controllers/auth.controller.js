@@ -17,13 +17,10 @@ exports.login = async (req, res) => {
         });
     }
     
-    // 1. Obtener usuario (incluye intentos_fallidos y bloqueo_hasta)
     const user = await UserModel.getUserForLogin(nombre);
     
     if (user) {
-        // 2. Verificar bloqueo antes de validar contraseña
         const lockoutTime = user.bloqueo_hasta ? new Date(user.bloqueo_hasta).getTime() : 0;
-        
         if (lockoutTime > Date.now()) {
             const minutosRestantes = Math.ceil((lockoutTime - Date.now()) / 60000);
             return res.status(403).json({ 
@@ -33,19 +30,16 @@ exports.login = async (req, res) => {
         }
     }
 
-    // 3. Verificar existencia de usuario
     if (!user) {
         return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    // ⚠️ Validar que el hash sea bcrypt válido
     if (!user.passwd || !user.passwd.startsWith("$2b$")) {
         return res.status(500).json({ 
             error: "Contraseña inválida en base de datos. Reinsertar usuario con hash correcto." 
         });
     }
 
-    // 4. Verificar contraseña
     const isMatch = await bcrypt.compare(password, user.passwd);
 
     if (!isMatch) {
@@ -53,10 +47,8 @@ exports.login = async (req, res) => {
         return res.status(401).json({ error: "Credenciales inválidas" });
     }
 
-    // 6. Login exitoso: Resetear intentos en la DB
     await UserModel.resetLoginAttempts(nombre);
 
-    // Generar JWT
     const token = generateToken(user.id, user.nombre, user.tipo);
 
     res.json({
@@ -106,7 +98,7 @@ exports.checkCaptcha = async (req, res) => {
 
 // POST /api/auth/newUser
 exports.createUser = async (req, res) => {
-    const { nombre, correo, password, pais } = req.body;
+    const { nombre, correo, password, pais, tipo } = req.body;
 
     if (!nombre || !correo || !password || !pais) {
         return res.status(400).json({ error: "Faltan campos obligatorios" });
@@ -124,7 +116,14 @@ exports.createUser = async (req, res) => {
             return res.status(500).json({ error: "Error generando hash de contraseña" });
         }
 
-        const id_insertado = await UserModel.createUser(nombre, correo, contraseñaHash, pais);
+        // 👇 ahora pasamos el tipo, por defecto 'cliente'
+        const id_insertado = await UserModel.createUser(
+            nombre,
+            correo,
+            contraseñaHash,
+            pais,
+            tipo || 'cliente'
+        );
 
         res.status(201).json({ 
             mensaje: 'Usuario registrado', 
