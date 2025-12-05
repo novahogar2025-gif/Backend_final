@@ -53,5 +53,5 @@ app.use((req, res) => {
 // Iniciar servidor
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor en puerto ${PORT}`);
-    console.log(`📍 Health: http://localhost:${PORT}/health`);
+    console.log("📍 Health: https://backend-final-o904.onrender.com/health");
 });
