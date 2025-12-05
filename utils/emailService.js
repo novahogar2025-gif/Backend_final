@@ -28,7 +28,7 @@ async function enviarCorreoContacto(destino, nombre, mensaje) {
     <p><strong>${process.env.EMPRESA_NOMBRE}</strong><br/>${process.env.EMPRESA_LEMA}</p>`;
 
   await transporter.sendMail({
-    from: process.env.EMAIL_USER,
+    from: process.env.EMAIL_FROM,
     to: destino,
     subject,
     html
@@ -44,7 +44,7 @@ async function enviarCorreoSuscripcion(destino, nombre, codigoCupon) {
     <p>${process.env.EMPRESA_NOMBRE} - ${process.env.EMPRESA_LEMA}</p>`;
 
   await transporter.sendMail({
-    from: process.env.EMAIL_USER,
+    from: process.env.EMAIL_FROM,
     to: destino,
     subject,
     html
@@ -70,7 +70,7 @@ async function enviarCorreoCompra(destino, nombre, pdfBuffer, orderId) {
 
   try {
     const info = await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_FROM,
       to: destino,
       subject,
       html,
@@ -110,3 +110,4 @@ module.exports = {
   enviarCorreoReset
 
 };
+
