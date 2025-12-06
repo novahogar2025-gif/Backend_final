@@ -1,4 +1,4 @@
-// utils/emailService.js (CON LOGO EMBEBIDO REAL)
+// utils/emailService.js (CON LOGO EMBEBIDO REAL - CORREGIDO)
 const sgMail = require('@sendgrid/mail');
 
 sgMail.setApiKey(process.env.EMAIL_PASS);
@@ -34,8 +34,6 @@ async function getLogoBase64() {
         
     } catch (error) {
         console.warn('⚠️ No se pudo descargar el logo para email:', error.message);
-        
-        // Crear un logo simple como texto HTML como fallback
         return null;
     }
 }
@@ -237,10 +235,10 @@ async function enviarCorreoReset(destino, nombre, resetToken) {
                 name: empresaNombre
             },
             subject,
-            html: getBaseTemplate(subject, contenido),
+            html: await getBaseTemplate(subject, contenido), // <--- AQUÍ FALTA 'await'
             text: `Hola ${nombreSaludo},\n\nPara restablecer tu contraseña, visita: ${resetUrl}\n\n${empresaNombre} - ${empresaLema}`,
             trackingSettings: {
-                clickTracking: { enable: false } // Deshabilitado por privacidad
+                clickTracking: { enable: false }
             }
         };
 
@@ -314,7 +312,7 @@ async function enviarCorreoCompra(destino, nombre, pdfBuffer, orderId, ordenData
             name: empresaNombre
         },
         subject,
-        html: getBaseTemplate(subject, contenido),
+        html: await getBaseTemplate(subject, contenido), // <--- AQUÍ FALTA 'await'
         text: `Hola ${nombreSaludo},\n\nGracias por tu compra #${orderId}. Adjunto encontrarás tu factura.\n\n${empresaNombre} - ${empresaLema}`,
         attachments: []
     };
@@ -338,7 +336,7 @@ async function enviarCorreoCompra(destino, nombre, pdfBuffer, orderId, ordenData
     }
 }
 
-// Mantén las otras funciones (solo necesitan usar getBaseTemplate)
+// CORREGIDO: Función para contacto
 async function enviarCorreoContacto(destino, nombre, mensaje) {
   const subject = `${empresaNombre} - Confirmación de contacto`;
   const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Cliente';
@@ -357,11 +355,12 @@ async function enviarCorreoContacto(destino, nombre, mensaje) {
         name: empresaNombre
     },
     subject,
-    html: getBaseTemplate(subject, contenido),
+    html: await getBaseTemplate(subject, contenido), // <--- AQUÍ FALTA 'await'
     text: `Hola ${nombreSaludo},\n\nHemos recibido tu mensaje.\n\n${empresaNombre} - ${empresaLema}`
   });
 }
 
+// CORREGIDO: Función para suscripción
 async function enviarCorreoSuscripcion(destino, nombre, codigoCupon) {
   const subject = `${empresaNombre} - ¡Bienvenido a nuestra comunidad!`;
   const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Amigo';
@@ -392,11 +391,12 @@ async function enviarCorreoSuscripcion(destino, nombre, codigoCupon) {
         name: empresaNombre
     },
     subject,
-    html: getBaseTemplate(subject, contenido),
+    html: await getBaseTemplate(subject, contenido), // <--- AQUÍ FALTA 'await'
     text: `¡Hola ${nombreSaludo}!\n\nBienvenido a ${empresaNombre}. Tu cupón: ${codigoCupon}\n\n${empresaNombre} - ${empresaLema}`
   });
 }
 
+// CORREGIDO: Función para mensaje interno
 async function enviarMensajeInterno(nombre, correo, mensaje) {
   const businessEmail = process.env.EMAIL_FROM;
   const subject = `📩 [CONTACTO WEB] Nuevo Mensaje de ${nombre}`;
@@ -431,7 +431,7 @@ async function enviarMensajeInterno(nombre, correo, mensaje) {
         name: `${empresaNombre} - Contacto Web`
     },
     subject,
-    html: getBaseTemplate(subject, contenido),
+    html: await getBaseTemplate(subject, contenido), // <--- AQUÍ FALTA 'await'
     text: `Nuevo mensaje de ${nombre} (${correo}): ${mensaje}`
   });
 }
@@ -443,4 +443,3 @@ module.exports = {
   enviarCorreoReset,
   enviarMensajeInterno
 };
-
