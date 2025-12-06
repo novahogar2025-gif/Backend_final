@@ -65,10 +65,17 @@ exports.processPurchase = async (req, res) => {
             cupon_id = cupon.id;
         }
 
-        // 3. Calcular totales
+        // 3. Calcular totales (MEJORADO)
         let subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
         let impuestos = subtotal * IMPUESTOS_PORCENTAJE;
-        let totalAntesDescuento = subtotal + GASTOS_ENVIO + impuestos;
+        
+        // Lógica de envío gratis
+        let costo_envio_final = GASTOS_ENVIO;
+        if (subtotal >= 2000) {
+            costo_envio_final = 0; // Envío gratis
+        }
+
+        let totalAntesDescuento = subtotal + costo_envio_final + impuestos;
         
         let cupon_descuento_monto = 0;
         if (descuento_porcentaje > 0) {
@@ -89,7 +96,7 @@ exports.processPurchase = async (req, res) => {
             metodo_pago,
             subtotal,
             impuestos: impuestos.toFixed(2),
-            gastos_envio: GASTOS_ENVIO.toFixed(2),
+            gastos_envio: costo_envio_final.toFixed(2),
             cupon_descuento: cupon_descuento_monto.toFixed(2),
             total: total.toFixed(2),
             cupon_id // Puede ser null
@@ -305,3 +312,4 @@ exports.resendInvoice = async (req, res) => {
         });
     }
 };
+
