@@ -12,6 +12,7 @@ async function getCartByUserId(userId) {
             p.stockAC,
             p.cat, -- ⚠️ Añadido para el registro de ventas en la compra
             (c.cantidad * p.precio) as subtotal
+            p.url_imagen_principal
         FROM carrito c
         INNER JOIN productos p ON c.producto_id = p.id
         WHERE c.usuario_id = ?
@@ -79,4 +80,5 @@ module.exports = {
     updateCartQuantity,
     removeFromCart,
     clearCart
+
 };
