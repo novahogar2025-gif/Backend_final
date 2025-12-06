@@ -39,9 +39,12 @@ exports.verifyAdmin = (req, res, next) => {
 
 // Función para generar JWT
 exports.generateToken = (userId, nombre, tipo) => {
+    // El token expira en 24 horas
+    const expiresIn = 60 * 60 * 24; 
+    
     return jwt.sign(
-        { userId, nombre, tipo },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+        { userId, nombre, tipo }, 
+        process.env.JWT_SECRET, 
+        { expiresIn }
     );
 };
