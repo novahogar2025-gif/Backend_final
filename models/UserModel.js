@@ -28,15 +28,14 @@ async function setSuscritoByCorreo(correo, valor) {
 async function createUser(nombre, correo, contraseñaHash, pais, tipo = 'cliente') {
     const [result] = await pool.query(
         'INSERT INTO usuarios (nombre, correo, passwd, tipo, pais) VALUES (?, ?, ?, ?, ?)',
-        [nombre, correo, contraseñaHash, tipo, pais]  // <-- Usar el parámetro 'tipo'
+        [nombre, correo, contraseñaHash, tipo, pais]
     );
     return result.insertId;
 }
 
-// Obtener usuario completo para login (AHORA INCLUYE campos de seguridad)
+// Obtener usuario completo para login (incluye intentos y bloqueo)
 async function getUserForLogin(nombre) {
     const [rows] = await pool.query(
-        // ⚠️ Incluimos intentos_fallidos y bloqueo_hasta
         'SELECT id, nombre, passwd, tipo, correo, intentos_fallidos, bloqueo_hasta FROM usuarios WHERE nombre = ?', 
         [nombre]
     );
@@ -52,6 +51,14 @@ async function getUserById(id) {
     return rows.length > 0 ? rows[0] : null;
 }
 
+// Obtener todos los usuarios (ADMIN)
+async function getAllUsers() {
+    const [rows] = await pool.query(
+        'SELECT id, nombre, correo, tipo, pais, suscrito, fecha_creacion FROM usuarios ORDER BY id'
+    );
+    return rows;
+}
+
 // Actualizar la contraseña de un usuario por id
 async function updatePassword(id, contraseñaHash) {
     const [result] = await pool.query(
@@ -61,40 +68,49 @@ async function updatePassword(id, contraseñaHash) {
     return result.affectedRows;
 }
 
-// =======================================================
-// ✅ NUEVAS FUNCIONES PARA CONTROL DE INTENTOS DE LOGIN
-// =======================================================
+// Actualizar detalles básicos de usuario
+async function updateUserDetails(id, nombre, correo, pais) {
+    const [result] = await pool.query(
+        'UPDATE usuarios SET nombre = ?, correo = ?, pais = ? WHERE id = ?',
+        [nombre, correo, pais, id]
+    );
+    return result.affectedRows;
+}
+
+// Eliminar usuario
+async function deleteUser(id) {
+    const [result] = await pool.query(
+        'DELETE FROM usuarios WHERE id = ?',
+        [id]
+    );
+    return result.affectedRows;
+}
 
 // Registrar un intento fallido y gestionar bloqueo
 async function incrementLoginAttempts(nombre) {
-    // 1. Obtener datos de login (incluyendo intentos y bloqueo)
     const [rows] = await pool.query(
         'SELECT id, intentos_fallidos, bloqueo_hasta FROM usuarios WHERE nombre = ?',
         [nombre]
     );
 
-    if (rows.length === 0) return; // Usuario no existe
+    if (rows.length === 0) return;
     
     const user = rows[0];
-    let newAttempts = user.intentos_fallidos + 1;
+    let newAttempts = (user.intentos_fallidos || 0) + 1;
     let lockoutUntil = user.bloqueo_hasta;
     let now = Date.now();
 
-    // Si ya está bloqueado y el tiempo no ha expirado, no hacemos nada
     if (user.bloqueo_hasta && new Date(user.bloqueo_hasta).getTime() > now) {
         return; 
     }
 
     if (newAttempts >= MAX_ATTEMPTS) {
-        // Bloquear al usuario y reiniciar intentos
         lockoutUntil = new Date(now + LOCKOUT_TIME_MS);
         newAttempts = 0; 
     } else {
-        // Si no se bloquea, asegurar que el campo de bloqueo es NULL
         lockoutUntil = null; 
     }
 
-    // 2. Actualizar la DB
     await pool.query(
         'UPDATE usuarios SET intentos_fallidos = ?, bloqueo_hasta = ? WHERE id = ?',
         [newAttempts, lockoutUntil, user.id]
@@ -109,7 +125,6 @@ async function resetLoginAttempts(nombre) {
     );
 }
 
-// Exportar las funciones
 module.exports = {
     getUserByCorreo,
     setSuscritoByCorreo,
@@ -117,9 +132,9 @@ module.exports = {
     getUserForLogin,
     getUserById,
     updatePassword,
-    // Exportaciones de seguridad
+    getAllUsers,
+    updateUserDetails,
+    deleteUser,
     incrementLoginAttempts,
     resetLoginAttempts,
-
 };
-
