@@ -1,50 +1,50 @@
+// controllers/products.controller.js (VERSIÓN SIMPLIFICADA Y FUNCIONAL)
 const ProductModel = require('../models/ProductModel'); 
-// Se eliminan 'fs' y 'path' ya que la lógica de imágenes ahora debe venir de la DB/Cloudinary
 
-// Función auxiliar para mapear el producto y extraer la URL de la imagen principal
-// ASUMPCIÓN: El modelo de datos (ProductModel) selecciona la columna 'url_imagen_principal'.
+// Función auxiliar mejorada
 const mapProduct = (prod) => ({
     id: prod.id,
     nombre: prod.nombre,
     precio: prod.precio,
-    // Usamos la URL de la base de datos, que debe ser la URL completa de Cloudinary u otro servicio.
-    url_imagen: prod.url_imagen_principal || null 
+    descripcion: prod.descripcion,
+    categoria: prod.cat,
+    stock: prod.stockAC,
+    url_imagen: prod.url_imagen_principal || null
 });
 
 // GET /api/products/:id/images - Obtener imágenes por producto
-// Se ha refactorizado para devolver solo la URL de la imagen principal si existe.
 exports.getImagenesPorProducto = async (req, res) => {
     try {
         const idProducto = req.params.id;
-        const producto = await ProductModel.getProductById(idProducto); 
-
-        if (!producto) {
-            return res.status(404).json({ error: "Producto no encontrado" });
+        console.log('🔍 Solicitando imágenes para producto ID:', idProducto);
+        
+        // Usar el método específico para imágenes
+        const imagenes = await ProductModel.getProductImagesById(idProducto);
+        
+        console.log('📸 Imágenes encontradas:', imagenes.length);
+        
+        // Si no hay imágenes, devolver array vacío
+        if (imagenes.length === 0) {
+            console.log('⚠️ No se encontraron imágenes para el producto', idProducto);
+            return res.json([]);
         }
         
-        const lista = [];
-
-        if (producto.url_imagen_principal) {
-            return res.json([{ 
-                id: idProduct,
-                nombre: `principal_${idProducto}`,
-                url: producto.url_imagen_principal,
-                es_principal: true,
-                orden: 1
-            }]);
-        }
+        // Asegurar que las URLs sean válidas
+        const imagenesProcesadas = imagenes.map(img => ({
+            ...img,
+            url: img.url ? (img.url.startsWith('http') ? img.url : `https://${img.url}`) : null
+        }));
         
-        // NOTA: Si tienes múltiples imágenes para un producto, se necesitaría una
-        // tabla separada en la DB (ej: 'imagenes_producto') y una consulta adicional aquí.
-        
-        res.json(lista);
+        res.json(imagenesProcesadas);
 
     } catch (error) {
         console.error("❌ Error en getImagenesPorProducto:", error);
-        res.status(500).json({ error: "Error al obtener imágenes del producto" });
+        res.status(500).json({ 
+            error: "Error al obtener imágenes del producto",
+            detalle: error.message 
+        });
     }
 };
-
 
 // GET /api/products/salas - Obtener productos de Salas
 exports.getProductosSalas = async (req, res) => {
@@ -86,40 +86,94 @@ exports.getProductosCome = async (req, res) => {
 exports.getProduct = async (req, res) => {
     try {
         const id = req.params.prod;
+        console.log('🔍 Obteniendo producto ID:', id);
+        
         const producto = await ProductModel.getProductById(id);
 
         if (!producto) {
-            return res.status(404).json({ mensaje: "Producto no encontrado" });
+            console.log('⚠️ Producto no encontrado:', id);
+            return res.status(404).json({ 
+                mensaje: "Producto no encontrado",
+                id: id 
+            });
         }
 
-        // Agregar url_imagen principal al producto devuelto
-        const productoConImagen = {
-            ...producto,
-            url_imagen: producto.url_imagen_principal || null
+        console.log('✅ Producto encontrado:', producto.nombre);
+        
+        // Formatear el producto con la imagen
+        const productoFormateado = {
+            ...mapProduct(producto),
+            precio_formateado: `$${Number(producto.precio || 0).toFixed(2)}`,
+            categoria_formateada: (producto.cat || '').toUpperCase(),
+            disponible: (producto.stockAC || 0) > 0
         };
         
-        res.json(productoConImagen);
+        res.json(productoFormateado);
         
     } catch (error) {
         console.error("❌ Error en getProduct:", error);
-        res.status(500).json({ mensaje: "Error al obtener el producto" });
+        res.status(500).json({ 
+            mensaje: "Error al obtener el producto",
+            error: error.message
+        });
     }
 };
-
 
 // GET /api/products/all - Obtener todos los productos
 exports.getAllProducts = async (req, res) => {
     try {
         const productos = await ProductModel.getAllProducts();
-        
-        // Se mapea directamente el resultado de la base de datos
         const respuesta = productos.map(mapProduct);
-
-        res.json(respuesta);
+        
+        res.json({
+            total: respuesta.length,
+            productos: respuesta
+        });
 
     } catch (error) {
         console.error("❌ Error en getAllProducts:", error);
         res.status(500).json({ mensaje: "Error al obtener todos los productos" });
     }
+};
 
+// GET /api/products/categoria/:categoria - Nuevo endpoint para categorías dinámicas
+exports.getProductsByCategory = async (req, res) => {
+    try {
+        const categoria = req.params.categoria;
+        const productos = await ProductModel.getProductsByCategory(categoria);
+        const respuesta = productos.map(mapProduct);
+        
+        res.json({
+            categoria: categoria,
+            total: respuesta.length,
+            productos: respuesta
+        });
+    } catch (error) {
+        console.error("❌ Error en getProductsByCategory:", error);
+        res.status(500).json({ 
+            mensaje: "Error al obtener productos por categoría",
+            error: error.message 
+        });
+    }
+};
+
+// GET /api/products/buscar/:termino - Nuevo endpoint para búsqueda
+exports.searchProducts = async (req, res) => {
+    try {
+        const termino = req.params.termino;
+        const productos = await ProductModel.searchProducts(termino);
+        const respuesta = productos.map(mapProduct);
+        
+        res.json({
+            termino: termino,
+            total: respuesta.length,
+            productos: respuesta
+        });
+    } catch (error) {
+        console.error("❌ Error en searchProducts:", error);
+        res.status(500).json({ 
+            mensaje: "Error al buscar productos",
+            error: error.message 
+        });
+    }
 };
