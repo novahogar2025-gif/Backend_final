@@ -142,50 +142,79 @@ exports.createUser = async (req, res) => {
     }
 };
 
-// POST /api/auth/forgot-password
 exports.forgotPassword = async (req, res) => {
     try {
         const { correo } = req.body;
         if (!correo) return res.status(400).json({ error: 'Correo es requerido' });
 
         const user = await UserModel.getUserByCorreo(correo);
-        if (!user) return res.status(404).json({ mensaje: 'Si la cuenta existe, se enviará un correo.' });
+        if (!user) {
+            // Por seguridad, no revelar si el usuario existe o no
+            return res.json({ 
+                mensaje: 'Si la cuenta existe, se enviará un correo de recuperación.' 
+            });
+        }
 
         const resetToken = crypto.randomBytes(32).toString('hex');
-        const expiresAt = Date.now() + (60 * 60 * 1000);
+        const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hora
 
         await PasswordResetModel.deleteByUserId(user.id);
         await PasswordResetModel.createToken(resetToken, user.id, expiresAt);
 
         try {
-            await enviarCorreoReset(correo, user.nombre, resetToken);
+            // Asegurar que el nombre no sea undefined
+            const nombreUsuario = user.nombre || 'Usuario';
+            await enviarCorreoReset(correo, nombreUsuario, resetToken);
         } catch (mailError) {
             console.error('Error enviando correo de recuperación:', mailError);
+            return res.status(500).json({ 
+                error: 'No se pudo enviar el correo de recuperación. Intenta nuevamente.' 
+            });
         }
 
-        if (process.env.NODE_ENV === 'development') {
-            return res.json({ mensaje: 'Correo de recuperación enviado', token: resetToken });
-        }
-
-        return res.json({ mensaje: 'Correo de recuperación enviado' });
+        // VERSIÓN PRODUCCIÓN: Solo mensaje, sin token
+        return res.json({ 
+            mensaje: 'Correo de recuperación enviado',
+            success: true
+        });
+        
     } catch (error) {
         console.error('Error en forgotPassword:', error.message);
-        return res.status(500).json({ error: 'Error interno del servidor. No se pudo procesar la solicitud.' });
+        return res.status(500).json({ 
+            error: 'Error interno del servidor. No se pudo procesar la solicitud.' 
+        });
     }
 };
 
-// POST /api/auth/reset-password
+// POST /api/auth/reset-password 
 exports.resetPassword = async (req, res) => {
     try {
         const { token, nuevaPassword } = req.body;
-        if (!token || !nuevaPassword) return res.status(400).json({ error: 'Token y nuevaPassword son requeridos' });
+        if (!token || !nuevaPassword) {
+            return res.status(400).json({ 
+                error: 'Token y nueva contraseña son requeridos' 
+            });
+        }
+        
+        // Validar fortaleza de la contraseña (opcional pero recomendado)
+        if (nuevaPassword.length < 8) {
+            return res.status(400).json({ 
+                error: 'La contraseña debe tener al menos 8 caracteres' 
+            });
+        }
         
         const entry = await PasswordResetModel.findByToken(token);
-        if (!entry) return res.status(400).json({ error: 'Token inválido o expirado' });
+        if (!entry) {
+            return res.status(400).json({ 
+                error: 'Token inválido o expirado. Solicita un nuevo enlace.' 
+            });
+        }
 
         if (new Date(entry.expires_at).getTime() < Date.now()) {
             await PasswordResetModel.deleteByToken(token);
-            return res.status(400).json({ error: 'Token expirado' });
+            return res.status(400).json({ 
+                error: 'Token expirado. Solicita un nuevo enlace de recuperación.' 
+            });
         }
 
         const hashed = await bcrypt.hash(nuevaPassword, 10);
@@ -193,12 +222,21 @@ exports.resetPassword = async (req, res) => {
 
         await PasswordResetModel.deleteByToken(token);
 
-        if (updated === 0) return res.status(500).json({ error: 'No se pudo actualizar la contraseña' });
+        if (updated === 0) {
+            return res.status(500).json({ 
+                error: 'No se pudo actualizar la contraseña. Contacta al soporte.' 
+            });
+        }
 
-        return res.json({ mensaje: 'Contraseña actualizada con éxito' });
+        return res.json({ 
+            mensaje: 'Contraseña actualizada con éxito. Ya puedes iniciar sesión.',
+            success: true
+        });
+        
     } catch (error) {
         console.error('Error en resetPassword:', error);
-        res.status(500).json({ error: 'Error interno' });
+        res.status(500).json({ 
+            error: 'Error interno del servidor.' 
+        });
     }
 };
-
