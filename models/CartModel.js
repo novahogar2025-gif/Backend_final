@@ -10,8 +10,8 @@ async function getCartByUserId(userId) {
             p.nombre,
             p.precio,
             p.stockAC,
-            p.cat, -- ⚠️ Añadido para el registro de ventas en la compra
-            (c.cantidad * p.precio) as subtotal
+            p.cat,
+            (c.cantidad * p.precio) as subtotal,  -- ⚠️ Coma agregada aquí
             p.url_imagen_principal
         FROM carrito c
         INNER JOIN productos p ON c.producto_id = p.id
@@ -82,3 +82,4 @@ module.exports = {
     clearCart
 
 };
+
