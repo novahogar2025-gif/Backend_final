@@ -1,6 +1,6 @@
-// utils/pdfGenerator.js (VERSIÓN MEJORADA CON LOGO)
+// utils/pdfGenerator.js (VERSIÓN MEJORADA)
 const PDFDocument = require('pdfkit');
-const axios = require('axios'); // Necesitarás instalar: npm install axios
+const axios = require('axios');
 
 function formatCurrency(value) {
   const num = Number(value || 0);
@@ -10,140 +10,198 @@ function formatCurrency(value) {
 async function generarNotaCompraPDF(orden) {
   return new Promise(async (resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const doc = new PDFDocument({ 
+        margin: 40, 
+        size: 'A4',
+        bufferPages: true 
+      });
+      
       const buffers = [];
 
-      // Capturar el contenido del PDF en un Buffer
       doc.on('data', buffers.push.bind(buffers));
       doc.on('end', () => {
         resolve(Buffer.concat(buffers));
       });
       doc.on('error', reject);
 
+      // --- CONSTANTES PARA DISEÑO ---
+      const pageWidth = 595.28; // Ancho A4 en puntos
+      const pageHeight = 841.89; // Alto A4 en puntos
+      const margin = 40;
+      const contentWidth = pageWidth - (margin * 2);
+
       // --- LOGO DE LA EMPRESA ---
       try {
-        // Intentar cargar el logo desde Cloudinary
         const logoUrl = 'https://res.cloudinary.com/dngutwxha/image/upload/v1765005760/logoNovaHogar_v0jgk1.png';
+        const logoResponse = await axios.get(logoUrl, { responseType: 'arraybuffer' });
         
-        // Dibujar el logo en la esquina superior izquierda
-        doc.image(logoUrl, 40, 40, { 
-          width: 150,
+        // Insertar logo
+        const logoImage = Buffer.from(logoResponse.data);
+        doc.image(logoImage, margin, margin, { 
+          width: 120,
           height: 60,
-          fit: [150, 60],
-          align: 'left'
+          fit: [120, 60]
         });
+        
+        // Nombre de la empresa al lado del logo
+        doc.font('Helvetica-Bold').fontSize(18).fillColor('#2c3e50')
+           .text('Nova Hogar', margin + 130, margin + 10);
+        
+        doc.font('Helvetica-Oblique').fontSize(11).fillColor('#4a6fa5')
+           .text('DECORA TU VIDA, DECORA TU HOGAR', margin + 130, margin + 30);
+           
       } catch (logoError) {
         console.warn('No se pudo cargar el logo, usando texto alternativo');
-        doc.font('Helvetica-Bold').fontSize(20).text(process.env.EMPRESA_NOMBRE || 'Nova Hogar', 40, 40);
+        doc.font('Helvetica-Bold').fontSize(24).fillColor('#2c3e50')
+           .text('Nova Hogar', margin, margin);
+        doc.font('Helvetica-Oblique').fontSize(12).fillColor('#4a6fa5')
+           .text('DECORA TU VIDA, DECORA TU HOGAR', margin, margin + 25);
       }
 
       // --- INFORMACIÓN DE LA FACTURA (lado derecho) ---
-      const facturaX = 350;
-      const facturaY = 40;
+      const facturaWidth = 180;
+      const facturaX = pageWidth - margin - facturaWidth;
       
-      doc.rect(facturaX, facturaY, 200, 80)
-         .fillAndStroke('#f0f8ff', '#4a6fa5');
+      // Marco de la factura
+      doc.roundedRect(facturaX, margin, facturaWidth, 80, 5)
+         .fillAndStroke('#f8f9fa', '#4a6fa5');
       
+      // Título factura
       doc.font('Helvetica-Bold').fontSize(14).fillColor('#2c3e50')
-         .text('FACTURA / NOTA DE COMPRA', facturaX + 10, facturaY + 10);
-      
-      doc.font('Helvetica').fontSize(10).fillColor('#333');
-      doc.text(`N° Orden: ${orden.id || 'N/A'}`, facturaX + 10, facturaY + 30);
-      doc.text(`Fecha: ${orden.fecha_creacion ? new Date(orden.fecha_creacion).toLocaleDateString('es-MX') : 'N/A'}`, facturaX + 10, facturaY + 45);
-      doc.text(`Método: ${orden.metodo_pago || 'N/A'}`, facturaX + 10, facturaY + 60);
+         .text('FACTURA / NOTA DE COMPRA', facturaX + 10, margin + 12);
       
       // Línea decorativa
-      doc.moveTo(40, 140).lineTo(550, 140).stroke('#4a6fa5').lineWidth(1);
+      doc.moveTo(facturaX + 10, margin + 32).lineTo(facturaX + facturaWidth - 10, margin + 32)
+         .stroke('#4a6fa5').lineWidth(0.5);
+      
+      // Datos de la factura
+      const facturaData = [
+        { label: 'N° Orden:', value: orden.id || 'N/A' },
+        { label: 'Fecha:', value: orden.fecha_creacion ? 
+          new Date(orden.fecha_creacion).toLocaleDateString('es-MX', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }) : new Date().toLocaleDateString('es-MX') },
+        { label: 'Método:', value: orden.metodo_pago || 'Tarjeta de crédito' }
+      ];
+      
+      let facturaY = margin + 40;
+      facturaData.forEach(item => {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#333')
+           .text(item.label, facturaX + 10, facturaY, { width: 60 });
+        doc.font('Helvetica').fontSize(9).fillColor('#333')
+           .text(item.value, facturaX + 70, facturaY, { width: 100 });
+        facturaY += 15;
+      });
+      
+      // Línea separadora
+      const separatorY = margin + 130;
+      doc.moveTo(margin, separatorY).lineTo(pageWidth - margin, separatorY)
+         .stroke('#4a6fa5').lineWidth(1);
       
       // --- DETALLES DEL CLIENTE ---
+      const clienteY = separatorY + 20;
+      
       doc.font('Helvetica-Bold').fontSize(12).fillColor('#2c3e50')
-         .text('DETALLES DEL CLIENTE:', 40, 160);
+         .text('DETALLES DEL CLIENTE:', margin, clienteY);
       
       const detallesCliente = [
         `Nombre: ${orden.nombre_cliente || 'N/A'}`,
-        `Dirección: ${orden.direccion || 'N/A'}, ${orden.ciudad || ''}, ${orden.codigo_postal || ''}`,
+        `Dirección: ${orden.direccion || 'N/A'}, ${orden.ciudad || ''}`,
+        `Código Postal: ${orden.codigo_postal || 'N/A'}`,
         `País: ${orden.pais || 'N/A'}`,
         `Teléfono: ${orden.telefono || 'N/A'}`
       ];
       
       detallesCliente.forEach((linea, index) => {
         doc.font('Helvetica').fontSize(10).fillColor('#333')
-           .text(linea, 40, 185 + (index * 15));
+           .text(linea, margin, clienteY + 20 + (index * 15));
       });
       
-      // Línea separadora
-      doc.moveTo(40, 250).lineTo(550, 250).stroke('#cccccc').lineWidth(0.5);
+      // --- DETALLES DE LA ORDEN ---
+      const ordenY = clienteY + 110;
       
-      // --- DETALLES DE LA ORDEN (TABLA) ---
       doc.font('Helvetica-Bold').fontSize(14).fillColor('#2c3e50')
-         .text('DETALLES DE LA ORDEN', 40, 270);
+         .text('DETALLES DE LA ORDEN', margin, ordenY);
       
-      // Encabezados de la tabla
-      const tableTop = 300;
-      const colWidths = [200, 100, 80, 100]; // Producto, Precio, Cantidad, Subtotal
-      let currentX = 40;
+      // Encabezados de tabla
+      const tableTop = ordenY + 20;
+      const colWidths = [220, 100, 80, 100];
+      const colPositions = [margin];
+      for (let i = 1; i < colWidths.length; i++) {
+        colPositions[i] = colPositions[i-1] + colWidths[i-1];
+      }
+      
+      // Fondo encabezados
+      doc.rect(margin, tableTop, contentWidth, 25).fill('#4a6fa5');
       
       const headers = ['Producto', 'Precio Unitario', 'Cantidad', 'Subtotal'];
-      
-      // Fondo para encabezados
-      doc.rect(40, tableTop, 510, 25).fill('#4a6fa5');
-      
       headers.forEach((header, index) => {
         doc.font('Helvetica-Bold').fontSize(10).fillColor('white')
-           .text(header, currentX, tableTop + 8, { width: colWidths[index], align: index > 0 ? 'right' : 'left' });
-        currentX += colWidths[index];
+           .text(header, colPositions[index], tableTop + 8, { 
+             width: colWidths[index], 
+             align: index > 0 ? 'right' : 'left' 
+           });
       });
       
       // Filas de productos
       let currentY = tableTop + 30;
       
       if (!orden.detalles || orden.detalles.length === 0) {
-        // Manejar caso sin detalles
+        // Producto por defecto si no hay detalles
         doc.font('Helvetica').fontSize(10).fillColor('#666')
-           .text('No hay detalles disponibles', 40, currentY);
+           .text('Sin detalles específicos', margin, currentY);
         currentY += 20;
       } else {
         orden.detalles.forEach((item, index) => {
-          // Fondo alternado para filas
+          // Fondo alternado
           if (index % 2 === 0) {
-            doc.rect(40, currentY - 5, 510, 20).fill('#f9f9f9');
+            doc.rect(margin, currentY - 5, contentWidth, 20).fill('#f9f9f9');
           }
-          
-          let xPos = 40;
           
           // Producto
           doc.font('Helvetica').fontSize(9).fillColor('#333')
-             .text(item.nombre_producto || 'Producto sin nombre', xPos, currentY, { width: 200 });
-          xPos += 200;
+             .text(item.nombre_producto || 'Producto', colPositions[0], currentY, { 
+               width: colWidths[0] - 10 
+             });
           
-          // Precio Unitario
+          // Precio
           doc.font('Helvetica').fontSize(9).fillColor('#333')
-             .text(`$${formatCurrency(item.precio_unitario)}`, xPos, currentY, { width: 100, align: 'right' });
-          xPos += 100;
+             .text(`$${formatCurrency(item.precio_unitario)}`, colPositions[1], currentY, { 
+               width: colWidths[1], 
+               align: 'right' 
+             });
           
           // Cantidad
           doc.font('Helvetica').fontSize(9).fillColor('#333')
-             .text(item.cantidad || 1, xPos, currentY, { width: 80, align: 'right' });
-          xPos += 80;
+             .text(item.cantidad || 1, colPositions[2], currentY, { 
+               width: colWidths[2], 
+               align: 'right' 
+             });
           
           // Subtotal
           doc.font('Helvetica-Bold').fontSize(9).fillColor('#333')
-             .text(`$${formatCurrency(item.subtotal)}`, xPos, currentY, { width: 100, align: 'right' });
+             .text(`$${formatCurrency(item.subtotal)}`, colPositions[3], currentY, { 
+               width: colWidths[3], 
+               align: 'right' 
+             });
           
           currentY += 20;
         });
       }
       
-      // Línea después de la tabla
-      doc.moveTo(40, currentY + 10).lineTo(550, currentY + 10).stroke('#cccccc').lineWidth(0.5);
+      // Línea después de productos
+      doc.moveTo(margin, currentY + 10).lineTo(pageWidth - margin, currentY + 10)
+         .stroke('#cccccc').lineWidth(0.5);
       
-      // --- TOTALES (Cuadro en la derecha) ---
-      const totalesTop = currentY + 20;
+      // --- TOTALES ---
+      const totalesY = currentY + 25;
       const totalesWidth = 230;
-      const totalesX = 550 - totalesWidth;
+      const totalesX = pageWidth - margin - totalesWidth;
       
-      // Fondo del cuadro de totales
-      doc.rect(totalesX, totalesTop, totalesWidth, 150)
+      // Marco de totales
+      doc.roundedRect(totalesX, totalesY, totalesWidth, 135, 5)
          .fillAndStroke('#f8f9fa', '#4a6fa5');
       
       const lineasTotales = [
@@ -151,58 +209,86 @@ async function generarNotaCompraPDF(orden) {
         { label: 'Gastos de Envío:', value: orden.gastos_envio || 0 },
         { label: 'Impuestos (IVA):', value: orden.impuestos || 0 },
         { label: 'Cupón Descuento:', value: -(orden.cupon_descuento || 0) },
+        { label: '', value: 0 }, // Espacio
         { label: 'TOTAL PAGADO:', value: orden.total || 0, bold: true }
       ];
       
-      let yPos = totalesTop + 15;
+      let totalesCurrentY = totalesY + 15;
       
-      lineasTotales.forEach((linea) => {
+      lineasTotales.forEach((linea, index) => {
+        // Salto de línea antes del total
+        if (index === lineasTotales.length - 2) {
+          totalesCurrentY += 10;
+          doc.moveTo(totalesX + 10, totalesCurrentY - 5)
+             .lineTo(totalesX + totalesWidth - 10, totalesCurrentY - 5)
+             .stroke('#4a6fa5').lineWidth(1);
+          totalesCurrentY += 10;
+        }
+        
+        if (linea.label === '') {
+          totalesCurrentY += 5;
+          return;
+        }
+        
         if (linea.bold) {
-          doc.font('Helvetica-Bold').fontSize(11);
+          doc.font('Helvetica-Bold').fontSize(12);
         } else {
           doc.font('Helvetica').fontSize(10);
         }
         
         // Etiqueta
         doc.fillColor('#2c3e50')
-           .text(linea.label, totalesX + 10, yPos, { width: 140 });
+           .text(linea.label, totalesX + 15, totalesCurrentY, { width: 140 });
         
         // Valor
         const valor = linea.value;
         const signo = valor < 0 ? '-' : '';
         const valorAbs = Math.abs(valor);
+        const color = valor < 0 ? '#e74c3c' : (linea.bold ? '#2c3e50' : '#333');
         
-        doc.fillColor(valor < 0 ? '#e74c3c' : (linea.bold ? '#2c3e50' : '#333'))
-           .text(`${signo}$${formatCurrency(valorAbs)}`, totalesX + 150, yPos, { width: 70, align: 'right' });
+        doc.fillColor(color)
+           .text(`${signo}$${formatCurrency(valorAbs)}`, totalesX + 155, totalesCurrentY, { 
+             width: 60, 
+             align: 'right' 
+           });
         
-        yPos += 22;
-        
-        // Línea divisoria antes del total
-        if (linea.bold) {
-          doc.moveTo(totalesX + 10, yPos - 10).lineTo(totalesX + totalesWidth - 10, yPos - 10)
-             .stroke('#4a6fa5').lineWidth(0.5);
-          yPos += 5;
-        }
+        totalesCurrentY += 18;
       });
       
       // --- PIE DE PÁGINA ---
-      const footerY = totalesTop + 160;
+      const footerY = pageHeight - margin - 60;
       
-      doc.moveTo(40, footerY).lineTo(550, footerY).stroke('#4a6fa5').lineWidth(1);
+      doc.moveTo(margin, footerY).lineTo(pageWidth - margin, footerY)
+         .stroke('#4a6fa5').lineWidth(0.5);
       
-      doc.font('Helvetica-Bold').fontSize(12).fillColor('#2c3e50')
-         .text('¡Gracias por tu compra!', 40, footerY + 15, { align: 'center', width: 510 });
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#2c3e50')
+         .text('¡Gracias por tu compra!', margin, footerY + 10, { 
+           width: contentWidth, 
+           align: 'center' 
+         });
       
       doc.font('Helvetica').fontSize(9).fillColor('#666')
-         .text('Para consultas: soporte@novahogar.com | Tel: +52 449 123 4567', 40, footerY + 35, { align: 'center', width: 510 });
+         .text('Para consultas: soporte@novahogar.com | Tel: +52 449 123 4567', 
+               margin, footerY + 25, { width: contentWidth, align: 'center' });
       
       doc.font('Helvetica-Oblique').fontSize(8).fillColor('#95a5a6')
-         .text('Nova Hogar - DECORA TU VIDA, DECORA TU HOGAR', 40, footerY + 55, { align: 'center', width: 510 });
+         .text('Nova Hogar - DECORA TU VIDA, DECORA TU HOGAR', 
+               margin, footerY + 40, { width: contentWidth, align: 'center' });
       
-      // Terminar el documento
+      // Número de página
+      const totalPages = doc.bufferedPageRange().count;
+      for (let i = 0; i < totalPages; i++) {
+        doc.switchToPage(i);
+        doc.font('Helvetica').fontSize(8).fillColor('#999')
+           .text(`Página ${i + 1} de ${totalPages}`, 
+                 pageWidth - margin - 50, pageHeight - margin - 10);
+      }
+      
+      // Finalizar documento
       doc.end();
       
     } catch (error) {
+      console.error('❌ Error generando PDF:', error);
       reject(error);
     }
   });
