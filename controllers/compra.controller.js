@@ -7,33 +7,8 @@ const { generarNotaCompraPDF } = require('../utils/pdfGenerator');
 const { enviarCorreoCompra } = require('../utils/emailService');
 const pool = require('../db/conexion.js');
 
-// NUEVO: Función para eliminar orden completa
-async function eliminarOrdenCompleta(conn, orderId) {
-    try {
-        // 1. Eliminar detalles de la orden
-        await conn.query('DELETE FROM detalles_orden WHERE orden_id = ?', [orderId]);
-        
-        // 2. Eliminar ventas asociadas (si existen)
-        try {
-            await conn.query('DELETE FROM ventas WHERE orden_id = ?', [orderId]);
-        } catch (error) {
-            console.log('⚠️ Tabla ventas no existe o error:', error.message);
-        }
-        
-        // 3. Eliminar la orden principal
-        const [result] = await conn.query('DELETE FROM ordenes WHERE id = ?', [orderId]);
-        
-        return result.affectedRows > 0;
-    } catch (error) {
-        console.error('❌ Error eliminando orden:', error);
-        throw error;
-    }
-}
-
-// POST /api/purchase/complete - COMPRETA TODO EN UN SOLO PASO
-exports.completePurchase = async (req, res) => {
-    let conn;
-    
+// POST /api/purchase/process - Procesar compra (MANTENER)
+exports.processPurchase = async (req, res) => {
     try {
         const userId = req.userId;
         const {
@@ -47,52 +22,35 @@ exports.completePurchase = async (req, res) => {
             codigo_cupon
         } = req.body;
 
-        // Validación de datos
         if (!nombre_cliente || !direccion || !ciudad || !codigo_postal || !telefono || !pais || !metodo_pago) {
-            return res.status(400).json({ 
-                error: 'Faltan datos obligatorios para la compra' 
-            });
+            return res.status(400).json({ error: 'Faltan datos obligatorios' });
         }
 
-        // Obtener conexión y comenzar transacción
-        conn = await pool.getConnection();
-        await conn.beginTransaction();
-
-        // 1. Obtener carrito del usuario
         const cartItems = await CartModel.getCartByUserId(userId);
         if (!cartItems || cartItems.length === 0) {
-            await conn.rollback();
-            conn.release();
-            return res.status(400).json({ 
-                error: 'El carrito está vacío' 
-            });
+            return res.status(400).json({ error: 'El carrito está vacío' });
         }
 
-        // 2. Verificar stock de todos los productos
+        // Verificar stock
         for (const item of cartItems) {
             const disponible = await ProductModel.checkAvailability(item.producto_id, item.cantidad);
             if (!disponible) {
-                await conn.rollback();
-                conn.release();
                 return res.status(409).json({ 
-                    error: `Producto "${item.nombre}" sin stock suficiente` 
+                    error: `Stock insuficiente para "${item.nombre}"` 
                 });
             }
         }
 
-        // 3. Calcular totales
+        // Calcular totales
         let subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
         let cupon_descuento = 0;
         const gastos_envio = 150.00;
         const impuestos_tasa = 0.16;
 
-        // Validar cupón si se proporciona
-        let cupon_id = null;
         if (codigo_cupon) {
             const cupon = await CouponModel.validateCoupon(codigo_cupon);
             if (cupon && cupon.descuento_porcentaje) {
                 cupon_descuento = subtotal * (cupon.descuento_porcentaje / 100);
-                cupon_id = codigo_cupon;
             }
         }
 
@@ -100,7 +58,6 @@ exports.completePurchase = async (req, res) => {
         const impuestos = subtotal_despues_cupon * impuestos_tasa;
         const total = subtotal_despues_cupon + impuestos + gastos_envio;
 
-        // 4. Crear datos de la orden
         const orderData = {
             usuario_id: userId,
             nombre_cliente,
@@ -115,145 +72,321 @@ exports.completePurchase = async (req, res) => {
             gastos_envio: gastos_envio.toFixed(2),
             cupon_descuento: cupon_descuento.toFixed(2),
             total: total.toFixed(2),
-            cupon_id
+            cupon_id: codigo_cupon || null
         };
 
-        // 5. Crear orden en base de datos
-        const orderId = await OrderModel.createOrder(conn, orderData);
-        
-        // 6. Agregar detalles de la orden
-        await OrderModel.addOrderDetails(conn, orderId, cartItems);
-        
-        // 7. Actualizar stock de productos
+        const ordenId = await OrderModel.createOrder(pool, orderData);
+        await OrderModel.addOrderDetails(pool, ordenId, cartItems);
+
         for (const item of cartItems) {
             await ProductModel.updateStock(item.producto_id, item.cantidad);
-            
-            // Registrar venta para estadísticas
-            try {
-                const productoInfo = await ProductModel.getProductById(item.producto_id);
-                if (productoInfo && productoInfo.cat) {
-                    await OrderModel.registerSale(conn, orderId, productoInfo.cat, item.subtotal);
-                }
-            } catch (error) {
-                console.log('⚠️ No se pudo registrar venta para estadísticas:', error.message);
+            const productoInfo = await ProductModel.getProductById(item.producto_id);
+            if (productoInfo) {
+                await OrderModel.registerSale(pool, ordenId, productoInfo.cat, item.subtotal);
             }
         }
 
-        // 8. Desactivar cupón si se usó
         if (codigo_cupon && cupon_descuento > 0) {
-            try {
-                await CouponModel.deactivateCoupon(codigo_cupon);
-            } catch (error) {
-                console.log('⚠️ No se pudo desactivar cupón:', error.message);
-            }
+            await CouponModel.deactivateCoupon(codigo_cupon);
         }
 
-        // 9. Limpiar carrito
-        await CartModel.clearCart(conn, userId);
+        await CartModel.clearCart(pool, userId);
 
-        // 10. Obtener datos completos de la orden para el PDF
-        const ordenCompleta = await OrderModel.getOrderById(orderId);
+        res.json({
+            mensaje: 'Compra procesada exitosamente',
+            success: true,
+            orderId: ordenId,
+            datos: {
+                ordenId,
+                total: orderData.total,
+                fecha: new Date().toISOString(),
+                items: cartItems.length
+            }
+        });
+
+    } catch (error) {
+        console.error('Error al procesar compra:', error);
+        res.status(500).json({ 
+            error: 'Error al procesar la compra', 
+            detalle: error.message 
+        });
+    }
+};
+
+// POST /api/purchase/finalize - Finalizar compra y enviar PDF
+exports.finalizePurchase = async (req, res) => {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+        return res.status(400).json({ error: 'Falta el ID de la orden' });
+    }
+
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+
+        // Verificar que la orden existe y pertenece al usuario
+        const orden = await OrderModel.getOrderById(orderId);
         
-        if (!ordenCompleta) {
+        if (!orden) {
             await conn.rollback();
             conn.release();
-            return res.status(500).json({ 
-                error: 'Error al obtener datos de la orden' 
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+
+        if (orden.usuario_id !== req.userId) {
+            await conn.rollback();
+            conn.release();
+            return res.status(403).json({ error: 'No tienes permiso para ver esta orden' });
+        }
+
+        // Actualizar estado de la orden a "completada"
+        await conn.query(
+            'UPDATE ordenes SET estado = "completada" WHERE id = ?',
+            [orderId]
+        );
+
+        // Obtener usuario para el email
+        const usuario = await UserModel.getUserById(orden.usuario_id);
+        
+        if (!usuario) {
+            await conn.rollback();
+            conn.release();
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // Generar PDF
+        const pdfBuffer = await generarNotaCompraPDF(orden);
+
+        // Enviar email con PDF
+        try {
+            await enviarCorreoCompra(
+                usuario.correo, 
+                orden.nombre_cliente, 
+                pdfBuffer, 
+                orden.id,
+                {
+                    metodo_pago: orden.metodo_pago,
+                    fecha_creacion: orden.fecha_orden || new Date().toISOString()
+                }
+            );
+
+            await conn.commit();
+
+            res.json({
+                mensaje: 'Compra finalizada. Factura enviada a tu correo electrónico.',
+                success: true,
+                orderId: orden.id,
+                email: usuario.correo,
+                datosOrden: {
+                    fecha: orden.fecha_orden,
+                    total: orden.total,
+                    estado: 'completada'
+                }
+            });
+
+        } catch (mailErr) {
+            console.error('Error enviando correo con PDF:', mailErr);
+            
+            // IMPORTANTE: Aún así completamos la orden
+            await conn.commit();
+            
+            res.status(202).json({
+                mensaje: 'Compra finalizada, pero no se pudo enviar el correo.',
+                success: true,
+                orderId: orden.id,
+                advertencia: 'Guarda este número de orden: ' + orden.id,
+                emailError: mailErr.message
             });
         }
 
-        // 11. Generar PDF
-        const pdfBuffer = await generarNotaCompraPDF(ordenCompleta);
-        
-        // 12. Obtener datos del usuario para el email
-        const usuario = await UserModel.getUserById(userId);
-        const correoDestino = usuario?.correo || null;
-        const nombreUsuario = nombre_cliente || usuario?.nombre || 'Cliente';
+    } catch (error) {
+        if (conn) await conn.rollback();
+        console.error('Error al finalizar compra:', error);
+        res.status(500).json({ 
+            error: 'Error al procesar la compra', 
+            success: false 
+        });
+    } finally {
+        if (conn) conn.release && conn.release();
+    }
+};
 
-        // 13. Enviar email con PDF
-        let emailEnviado = false;
-        let emailError = null;
+// GET /api/purchase/orders - Obtener órdenes del usuario
+exports.getUserOrders = async (req, res) => {
+    try {
+        const userId = req.userId;
         
-        if (correoDestino) {
-            try {
-                await enviarCorreoCompra(correoDestino, nombreUsuario, pdfBuffer, orderId, {
-                    metodo_pago,
-                    fecha_creacion: new Date().toISOString()
-                });
-                emailEnviado = true;
-            } catch (mailErr) {
-                console.error('❌ Error enviando email:', mailErr.message);
-                emailError = mailErr.message;
+        const ordenes = await OrderModel.getOrdersByUserId(userId);
+        
+        // Formatear respuesta
+        const ordenesFormateadas = ordenes.map(orden => ({
+            id: orden.id,
+            fecha: orden.fecha_orden,
+            total: parseFloat(orden.total),
+            estado: orden.estado || 'completada',
+            metodo_pago: orden.metodo_pago,
+            items: orden.total_items || 0,
+            direccion: {
+                calle: orden.direccion,
+                ciudad: orden.ciudad,
+                codigo_postal: orden.codigo_postal,
+                pais: orden.pais
             }
-        }
+        }));
 
-        // 14. 🔴 IMPORTANTE: Eliminar la orden de la base de datos
-        const ordenEliminada = await eliminarOrdenCompleta(conn, orderId);
-        
-        if (!ordenEliminada) {
-            console.error('⚠️ No se pudo eliminar la orden de la base de datos');
-        }
+        const summary = await OrderModel.getUserOrdersSummary(userId);
 
-        // 15. Confirmar transacción
-        await conn.commit();
-
-        // 16. Responder al cliente
-        const respuesta = {
-            mensaje: 'Compra completada exitosamente',
+        res.json({
             success: true,
-            orderId,
-            datosCompra: {
-                subtotal: orderData.subtotal,
-                impuestos: orderData.impuestos,
-                envio: orderData.gastos_envio,
-                descuento: orderData.cupon_descuento,
-                total: orderData.total,
-                metodoPago: metodo_pago
-            }
-        };
-
-        // Agregar info del email
-        if (emailEnviado) {
-            respuesta.email = {
-                enviado: true,
-                mensaje: 'Factura enviada a tu correo electrónico'
-            };
-        } else {
-            respuesta.email = {
-                enviado: false,
-                mensaje: 'No se pudo enviar el email',
-                error: emailError
-            };
-        }
-
-        res.json(respuesta);
+            total: ordenes.length,
+            summary: {
+                total_ordenes: summary.total_ordenes,
+                total_gastado: parseFloat(summary.total_gastado) || 0,
+                ultima_compra: summary.ultima_compra
+            },
+            ordenes: ordenesFormateadas
+        });
 
     } catch (error) {
-        // Rollback en caso de error
-        if (conn) {
-            try {
-                await conn.rollback();
-            } catch (rollbackError) {
-                console.error('❌ Error en rollback:', rollbackError);
-            }
-        }
-        
-        console.error('❌ Error en completePurchase:', error);
-        
+        console.error('Error obteniendo órdenes:', error);
         res.status(500).json({ 
-            error: 'Error al procesar la compra',
-            mensaje: error.message || 'Error interno del servidor',
-            success: false
+            error: 'Error al obtener las órdenes',
+            success: false 
         });
+    }
+};
+
+// GET /api/purchase/orders/:id - Obtener detalles de una orden específica
+exports.getOrderDetails = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const orderId = req.params.id;
+
+        const orden = await OrderModel.getOrderById(orderId);
         
-    } finally {
-        // Liberar conexión
-        if (conn) {
-            try {
-                conn.release();
-            } catch (releaseError) {
-                console.error('❌ Error liberando conexión:', releaseError);
-            }
+        if (!orden) {
+            return res.status(404).json({ 
+                error: 'Orden no encontrada',
+                success: false 
+            });
         }
+
+        // Verificar que la orden pertenece al usuario
+        if (orden.usuario_id !== userId) {
+            return res.status(403).json({ 
+                error: 'No tienes permiso para ver esta orden',
+                success: false 
+            });
+        }
+
+        // Formatear respuesta
+        const ordenDetallada = {
+            id: orden.id,
+            fecha: orden.fecha_orden,
+            cliente: {
+                nombre: orden.nombre_cliente,
+                telefono: orden.telefono,
+                direccion: {
+                    calle: orden.direccion,
+                    ciudad: orden.ciudad,
+                    codigo_postal: orden.codigo_postal,
+                    pais: orden.pais
+                }
+            },
+            pago: {
+                metodo: orden.metodo_pago,
+                subtotal: parseFloat(orden.subtotal),
+                impuestos: parseFloat(orden.impuestos),
+                envio: parseFloat(orden.gastos_envio),
+                descuento: parseFloat(orden.cupon_descuento),
+                total: parseFloat(orden.total)
+            },
+            estado: orden.estado || 'completada',
+            cupon_usado: orden.cupon_id || null,
+            items: orden.detalles.map(item => ({
+                id: item.producto_id,
+                nombre: item.nombre_producto,
+                cantidad: item.cantidad,
+                precio_unitario: parseFloat(item.precio_unitario),
+                subtotal: parseFloat(item.subtotal),
+                categoria: item.cat,
+                imagen: item.url_imagen_principal
+            }))
+        };
+
+        res.json({
+            success: true,
+            orden: ordenDetallada
+        });
+
+    } catch (error) {
+        console.error('Error obteniendo detalles de orden:', error);
+        res.status(500).json({ 
+            error: 'Error al obtener los detalles de la orden',
+            success: false 
+        });
+    }
+};
+
+// POST /api/purchase/send-invoice/:id - Reenviar factura por email
+exports.resendInvoice = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const orderId = req.params.id;
+
+        const orden = await OrderModel.getOrderById(orderId);
+        
+        if (!orden) {
+            return res.status(404).json({ 
+                error: 'Orden no encontrada',
+                success: false 
+            });
+        }
+
+        if (orden.usuario_id !== userId) {
+            return res.status(403).json({ 
+                error: 'No tienes permiso para esta orden',
+                success: false 
+            });
+        }
+
+        const usuario = await UserModel.getUserById(userId);
+        const pdfBuffer = await generarNotaCompraPDF(orden);
+
+        try {
+            await enviarCorreoCompra(
+                usuario.correo, 
+                orden.nombre_cliente, 
+                pdfBuffer, 
+                orden.id,
+                {
+                    metodo_pago: orden.metodo_pago,
+                    fecha_creacion: orden.fecha_orden
+                }
+            );
+
+            res.json({
+                success: true,
+                mensaje: 'Factura reenviada a tu correo electrónico',
+                email: usuario.correo
+            });
+
+        } catch (mailErr) {
+            console.error('Error reenviando email:', mailErr);
+            res.status(500).json({
+                success: false,
+                error: 'No se pudo reenviar la factura',
+                detalle: mailErr.message
+            });
+        }
+
+    } catch (error) {
+        console.error('Error en resendInvoice:', error);
+        res.status(500).json({ 
+            error: 'Error al procesar la solicitud',
+            success: false 
+        });
     }
 };
