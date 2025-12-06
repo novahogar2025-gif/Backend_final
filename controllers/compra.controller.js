@@ -7,8 +7,33 @@ const { generarNotaCompraPDF } = require('../utils/pdfGenerator');
 const { enviarCorreoCompra } = require('../utils/emailService');
 const pool = require('../db/conexion.js');
 
-// POST /api/purchase/process - Procesar compra
-exports.processPurchase = async (req, res) => {
+// NUEVO: Función para eliminar orden completa
+async function eliminarOrdenCompleta(conn, orderId) {
+    try {
+        // 1. Eliminar detalles de la orden
+        await conn.query('DELETE FROM detalles_orden WHERE orden_id = ?', [orderId]);
+        
+        // 2. Eliminar ventas asociadas (si existen)
+        try {
+            await conn.query('DELETE FROM ventas WHERE orden_id = ?', [orderId]);
+        } catch (error) {
+            console.log('⚠️ Tabla ventas no existe o error:', error.message);
+        }
+        
+        // 3. Eliminar la orden principal
+        const [result] = await conn.query('DELETE FROM ordenes WHERE id = ?', [orderId]);
+        
+        return result.affectedRows > 0;
+    } catch (error) {
+        console.error('❌ Error eliminando orden:', error);
+        throw error;
+    }
+}
+
+// POST /api/purchase/complete - COMPRETA TODO EN UN SOLO PASO
+exports.completePurchase = async (req, res) => {
+    let conn;
+    
     try {
         const userId = req.userId;
         const {
@@ -22,33 +47,52 @@ exports.processPurchase = async (req, res) => {
             codigo_cupon
         } = req.body;
 
+        // Validación de datos
         if (!nombre_cliente || !direccion || !ciudad || !codigo_postal || !telefono || !pais || !metodo_pago) {
-            return res.status(400).json({ error: 'Faltan datos obligatorios' });
+            return res.status(400).json({ 
+                error: 'Faltan datos obligatorios para la compra' 
+            });
         }
 
+        // Obtener conexión y comenzar transacción
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+
+        // 1. Obtener carrito del usuario
         const cartItems = await CartModel.getCartByUserId(userId);
         if (!cartItems || cartItems.length === 0) {
-            return res.status(400).json({ error: 'El carrito está vacío' });
+            await conn.rollback();
+            conn.release();
+            return res.status(400).json({ 
+                error: 'El carrito está vacío' 
+            });
         }
 
-        // Verificar stock
+        // 2. Verificar stock de todos los productos
         for (const item of cartItems) {
             const disponible = await ProductModel.checkAvailability(item.producto_id, item.cantidad);
             if (!disponible) {
-                return res.status(409).json({ error: 'Stock insuficiente para uno o más productos' });
+                await conn.rollback();
+                conn.release();
+                return res.status(409).json({ 
+                    error: `Producto "${item.nombre}" sin stock suficiente` 
+                });
             }
         }
 
-        // Calcular totales
+        // 3. Calcular totales
         let subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
         let cupon_descuento = 0;
         const gastos_envio = 150.00;
         const impuestos_tasa = 0.16;
 
+        // Validar cupón si se proporciona
+        let cupon_id = null;
         if (codigo_cupon) {
             const cupon = await CouponModel.validateCoupon(codigo_cupon);
             if (cupon && cupon.descuento_porcentaje) {
                 cupon_descuento = subtotal * (cupon.descuento_porcentaje / 100);
+                cupon_id = codigo_cupon;
             }
         }
 
@@ -56,6 +100,7 @@ exports.processPurchase = async (req, res) => {
         const impuestos = subtotal_despues_cupon * impuestos_tasa;
         const total = subtotal_despues_cupon + impuestos + gastos_envio;
 
+        // 4. Crear datos de la orden
         const orderData = {
             usuario_id: userId,
             nombre_cliente,
@@ -70,100 +115,145 @@ exports.processPurchase = async (req, res) => {
             gastos_envio: gastos_envio.toFixed(2),
             cupon_descuento: cupon_descuento.toFixed(2),
             total: total.toFixed(2),
-            cupon_id: codigo_cupon || null
+            cupon_id
         };
 
-        const ordenId = await OrderModel.createOrder(pool, orderData);
-        await OrderModel.addOrderDetails(pool, ordenId, cartItems);
-
+        // 5. Crear orden en base de datos
+        const orderId = await OrderModel.createOrder(conn, orderData);
+        
+        // 6. Agregar detalles de la orden
+        await OrderModel.addOrderDetails(conn, orderId, cartItems);
+        
+        // 7. Actualizar stock de productos
         for (const item of cartItems) {
             await ProductModel.updateStock(item.producto_id, item.cantidad);
-            const productoInfo = await ProductModel.getProductById(item.producto_id);
-            if (productoInfo) {
-                await OrderModel.registerSale(pool, ordenId, productoInfo.cat, item.subtotal);
+            
+            // Registrar venta para estadísticas
+            try {
+                const productoInfo = await ProductModel.getProductById(item.producto_id);
+                if (productoInfo && productoInfo.cat) {
+                    await OrderModel.registerSale(conn, orderId, productoInfo.cat, item.subtotal);
+                }
+            } catch (error) {
+                console.log('⚠️ No se pudo registrar venta para estadísticas:', error.message);
             }
         }
 
+        // 8. Desactivar cupón si se usó
         if (codigo_cupon && cupon_descuento > 0) {
-            await CouponModel.deactivateCoupon(codigo_cupon);
+            try {
+                await CouponModel.deactivateCoupon(codigo_cupon);
+            } catch (error) {
+                console.log('⚠️ No se pudo desactivar cupón:', error.message);
+            }
         }
 
-        await CartModel.clearCart(pool, userId);
+        // 9. Limpiar carrito
+        await CartModel.clearCart(conn, userId);
 
-        res.json({
-            mensaje: 'Proceso de compra exitoso. Orden creada.',
-            success: true,
-            orderId: ordenId
-        });
-
-    } catch (error) {
-        console.error('Error al procesar compra:', error);
-        res.status(500).json({ error: 'Error al procesar la compra', detail: String(error) });
-    }
-};
-
-// POST /api/purchase/finalize - Finalizar compra
-exports.finalizePurchase = async (req, res) => {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-        return res.status(400).json({ error: 'Falta el ID de la orden' });
-    }
-
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.beginTransaction();
-
-        const orden = await OrderModel.getOrderById(orderId);
-        const cartItems = orden && orden.detalles ? orden.detalles : [];
-
-        if (!orden || !cartItems || cartItems.length === 0 || orden.usuario_id !== req.userId) {
+        // 10. Obtener datos completos de la orden para el PDF
+        const ordenCompleta = await OrderModel.getOrderById(orderId);
+        
+        if (!ordenCompleta) {
             await conn.rollback();
-            return res.status(400).json({ error: 'Orden inválida o no pertenece al usuario' });
+            conn.release();
+            return res.status(500).json({ 
+                error: 'Error al obtener datos de la orden' 
+            });
         }
 
-        for (const item of cartItems) {
-            const categoria = item.cat || 'General';
-            await OrderModel.registerSale(conn, orderId, categoria, item.subtotal);
+        // 11. Generar PDF
+        const pdfBuffer = await generarNotaCompraPDF(ordenCompleta);
+        
+        // 12. Obtener datos del usuario para el email
+        const usuario = await UserModel.getUserById(userId);
+        const correoDestino = usuario?.correo || null;
+        const nombreUsuario = nombre_cliente || usuario?.nombre || 'Cliente';
+
+        // 13. Enviar email con PDF
+        let emailEnviado = false;
+        let emailError = null;
+        
+        if (correoDestino) {
+            try {
+                await enviarCorreoCompra(correoDestino, nombreUsuario, pdfBuffer, orderId, {
+                    metodo_pago,
+                    fecha_creacion: new Date().toISOString()
+                });
+                emailEnviado = true;
+            } catch (mailErr) {
+                console.error('❌ Error enviando email:', mailErr.message);
+                emailError = mailErr.message;
+            }
         }
 
-        if (orden.cupon_id) {
-            await CouponModel.markCouponAsUsed(orden.cupon_id);
+        // 14. 🔴 IMPORTANTE: Eliminar la orden de la base de datos
+        const ordenEliminada = await eliminarOrdenCompleta(conn, orderId);
+        
+        if (!ordenEliminada) {
+            console.error('⚠️ No se pudo eliminar la orden de la base de datos');
         }
 
-        await CartModel.clearCart(conn, orden.usuario_id);
-
+        // 15. Confirmar transacción
         await conn.commit();
 
-        const pdfBuffer = await generarNotaCompraPDF(orden);
-        const usuario = await UserModel.getUserById(orden.usuario_id);
+        // 16. Responder al cliente
+        const respuesta = {
+            mensaje: 'Compra completada exitosamente',
+            success: true,
+            orderId,
+            datosCompra: {
+                subtotal: orderData.subtotal,
+                impuestos: orderData.impuestos,
+                envio: orderData.gastos_envio,
+                descuento: orderData.cupon_descuento,
+                total: orderData.total,
+                metodoPago: metodo_pago
+            }
+        };
 
-        try {
-            const info = await enviarCorreoCompra(usuario.correo, orden.nombre_cliente, pdfBuffer, orden.id);
-            return res.json({
-                mensaje: 'Compra finalizada. La nota se envió a tu correo electrónico.',
-                success: true,
-                mailInfo: {
-                    messageId: info && info.messageId,
-                    accepted: info && info.accepted,
-                    rejected: info && info.rejected
-                }
-            });
-        } catch (mailErr) {
-            console.error('Error enviando correo con PDF:', mailErr);
-            return res.status(202).json({
-                mensaje: 'Compra finalizada con éxito, pero falló el envío del correo.',
-                success: true,
-                mailError: String(mailErr)
-            });
+        // Agregar info del email
+        if (emailEnviado) {
+            respuesta.email = {
+                enviado: true,
+                mensaje: 'Factura enviada a tu correo electrónico'
+            };
+        } else {
+            respuesta.email = {
+                enviado: false,
+                mensaje: 'No se pudo enviar el email',
+                error: emailError
+            };
         }
 
+        res.json(respuesta);
+
     } catch (error) {
-        if (conn) await conn.rollback();
-        console.error('Error al finalizar compra:', error);
-        res.status(500).json({ error: 'Error al procesar la compra', success: false });
+        // Rollback en caso de error
+        if (conn) {
+            try {
+                await conn.rollback();
+            } catch (rollbackError) {
+                console.error('❌ Error en rollback:', rollbackError);
+            }
+        }
+        
+        console.error('❌ Error en completePurchase:', error);
+        
+        res.status(500).json({ 
+            error: 'Error al procesar la compra',
+            mensaje: error.message || 'Error interno del servidor',
+            success: false
+        });
+        
     } finally {
-        if (conn) conn.release && conn.release();
+        // Liberar conexión
+        if (conn) {
+            try {
+                conn.release();
+            } catch (releaseError) {
+                console.error('❌ Error liberando conexión:', releaseError);
+            }
+        }
     }
 };
