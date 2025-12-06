@@ -6,10 +6,13 @@ sgMail.setApiKey(process.env.EMAIL_PASS);
 
 const empresaNombre = process.env.EMPRESA_NOMBRE || 'Nova Hogar';
 const empresaLema = process.env.EMPRESA_LEMA || 'DECORA TU VIDA, DECORA TU HOGAR';
+const businessEmail = process.env.BUSINESS_EMAIL || 'novahogar2025@gmail.com';
 
 // Cache para el logo
 let cachedLogoBase64 = null;
 let logoCacheTime = null;
+
+// --- Helpers de Logo y Plantilla Base ---
 
 async function getLogoBase64() {
     // Cache por 1 hora
@@ -35,499 +38,109 @@ async function getLogoBase64() {
             throw new Error(`HTTP ${response.status}`);
         }
         
-        // Convertir a Base64
+        // Convertir el buffer a base64
         cachedLogoBase64 = Buffer.from(response.data).toString('base64');
         logoCacheTime = Date.now();
-        
-        console.log('✅ Logo convertido a Base64 exitosamente');
-        console.log(`📊 Tamaño Base64: ${cachedLogoBase64.length} caracteres`);
+        console.log('✅ Logo descargado exitosamente');
         return cachedLogoBase64;
-        
+
     } catch (error) {
-        console.error('❌ Error descargando logo:', error.message);
-        console.log('🔄 Intentando URL de fallback...');
-        
-        // Intentar con un logo alternativo
-        try {
-            const fallbackUrl = 'https://via.placeholder.com/180x80/2c3e50/FFFFFF?text=Nova+Hogar';
-            const fallbackResponse = await axios.get(fallbackUrl, {
-                responseType: 'arraybuffer',
-                timeout: 5000
-            });
-            
-            cachedLogoBase64 = Buffer.from(fallbackResponse.data).toString('base64');
-            logoCacheTime = Date.now();
-            console.log('✅ Logo de fallback cargado');
-            return cachedLogoBase64;
-            
-        } catch (fallbackError) {
-            console.warn('⚠️ No se pudo cargar ningún logo');
-            return null;
-        }
+        console.error('❌ Error cargando logo. Usando fallback:', error.message);
+        // Fallback: usar una imagen por defecto o simplemente omitirla si falla
+        return 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; // 1x1 pixel transparente
     }
 }
 
-// Plantilla base con diseño mejorado
-async function getBaseTemplate(titulo, contenido) {
-    // Obtener logo como Base64
-    const logoBase64 = await getLogoBase64();
-    
-    let logoHtml;
-    
-    if (logoBase64) {
-        // Logo embebido como data URI
-        logoHtml = `
-            <img src="data:image/png;base64,${logoBase64}" 
-                 alt="${empresaNombre}" 
-                 style="max-width: 160px; height: auto; display: block; margin: 0 auto 12px auto; border: 0;"
-                 width="160">
-        `;
-    } else {
-        // Fallback solo texto
-        logoHtml = `
-            <div style="font-size: 28px; font-weight: bold; color: white; margin: 0 0 8px 0; text-align: center; letter-spacing: 1px;">
-                ${empresaNombre}
-            </div>
-        `;
-    }
-    
-    return `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>${titulo}</title>
-    <!--[if mso]>
-    <style type="text/css">
-        body, table, td {font-family: Arial, sans-serif !important;}
-    </style>
-    <![endif]-->
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f6f9;">
-    
-    <!-- Tabla principal para compatibilidad con clientes de email -->
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6f9; padding: 20px 0;">
-        <tr>
-            <td align="center">
-                
-                <!-- Container principal -->
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                    
-                    <!-- ENCABEZADO -->
-                    <tr>
-                        <td style="background: linear-gradient(135deg, #2c3e50 0%, #4a6fa5 100%); padding: 35px 25px; text-align: center;">
-                            ${logoHtml}
-                            <div style="color: #ffffff; font-size: 24px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: 0.5px;">
-                                ${empresaNombre}
-                            </div>
-                            <div style="color: #e8eef3; font-size: 13px; font-style: italic; margin: 0; letter-spacing: 0.3px;">
-                                ${empresaLema}
-                            </div>
-                        </td>
-                    </tr>
-                    
-                    <!-- CONTENIDO -->
-                    <tr>
-                        <td style="padding: 40px 30px;">
-                            ${contenido}
-                        </td>
-                    </tr>
-                    
-                    <!-- SEPARADOR -->
-                    <tr>
-                        <td style="padding: 0 30px;">
-                            <div style="border-top: 1px solid #e1e8ed; margin: 0;"></div>
-                        </td>
-                    </tr>
-                    
-                    <!-- PIE DE PÁGINA -->
-                    <tr>
-                        <td style="background-color: #2c3e50; padding: 25px 30px; text-align: center;">
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                                <tr>
-                                    <td style="color: #ecf0f1; font-size: 14px; padding-bottom: 12px; font-weight: 600;">
-                                        ${empresaNombre}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="color: #bdc3c7; font-size: 12px; line-height: 1.6;">
-                                        📧 soporte@novahogar.com
-                                        <br>
-                                        📞 +52 449 123 4567
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="color: #95a5a6; font-size: 11px; padding-top: 15px;">
-                                        © ${new Date().getFullYear()} ${empresaNombre}. Todos los derechos reservados.
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    
-                </table>
-                
-            </td>
-        </tr>
-    </table>
-    
-</body>
-</html>
-    `;
-}
 
-// Estilos reutilizables para contenido
 const estilos = {
-    saludo: `font-size: 22px; color: #2c3e50; margin: 0 0 20px 0; font-weight: 600; line-height: 1.3;`,
-    
-    mensaje: `font-size: 15px; color: #34495e; margin: 0 0 18px 0; line-height: 1.7;`,
-    
-    cajaInfo: `background: #f8f9fa; border-left: 4px solid #4a6fa5; padding: 20px; margin: 25px 0; border-radius: 0 8px 8px 0;`,
-    
-    cajaDestacada: `background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f7 100%); border: 2px solid #4a90e2; padding: 25px; text-align: center; margin: 25px 0; border-radius: 10px;`,
-    
-    boton: `display: inline-block; background: linear-gradient(135deg, #4a6fa5 0%, #2c3e50 100%); color: #ffffff !important; padding: 14px 32px; text-decoration: none !important; border-radius: 8px; font-weight: 600; font-size: 15px; margin: 20px 0; box-shadow: 0 3px 10px rgba(74, 111, 165, 0.3);`,
-    
-    urlBox: `background: #f5f7fa; padding: 15px; border-radius: 6px; margin: 20px 0; font-family: 'Courier New', Courier, monospace; font-size: 13px; word-break: break-all; color: #555; border: 1px solid #e1e8ed; text-align: center;`
+    contenedor: "max-width: 600px; margin: auto; padding: 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px;",
+    header: "text-align: center; padding: 10px 0; border-bottom: 2px solid #343a40;",
+    titulo: "color: #343a40; font-size: 24px; margin: 5px 0 0 0; font-weight: 700;",
+    lema: "color: #6c757d; font-size: 14px; margin: 0 0 10px 0;",
+    contenido: "padding: 20px 0; color: #495057; line-height: 1.6;",
+    footer: "text-align: center; padding: 10px 0; border-top: 1px solid #dee2e6; margin-top: 20px; font-size: 12px; color: #adb5bd;",
+    boton: "display: inline-block; padding: 12px 25px; margin: 15px 0; border-radius: 5px; background-color: #007bff; color: #ffffff !important; text-decoration: none; font-weight: 600; font-size: 16px; border: none;"
 };
 
-// ==================== FUNCIÓN: RESET DE CONTRASEÑA ====================
-async function enviarCorreoReset(destino, nombre, resetToken) {
-    const subject = `${empresaNombre} - Restablecimiento de Contraseña`;
-    const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Usuario';
+async function getBaseTemplate(subject, contentHtml) {
+    const logoBase64 = await getLogoBase64();
     
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${encodeURIComponent(resetToken)}`;
-    
-    console.log('📧 Preparando email de reset para:', destino);
-    console.log('🔗 URL generada:', resetUrl);
-    
-    const contenido = `
-        <div style="${estilos.saludo}">🔐 Hola ${nombreSaludo}</div>
-        
-        <div style="${estilos.mensaje}">
-            Hemos recibido una solicitud para restablecer tu contraseña en <strong>${empresaNombre}</strong>.
-        </div>
-        
-        <div style="${estilos.mensaje}">
-            Haz clic en el siguiente botón para crear una nueva contraseña:
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" style="${estilos.boton}">
-                Restablecer mi Contraseña
-            </a>
-        </div>
-        
-        <div style="${estilos.cajaInfo}">
-            <div style="font-size: 14px; color: #555; margin-bottom: 10px;">
-                <strong>⚠️ ¿Problemas con el botón?</strong>
+    return `
+        <div style="${estilos.contenedor}">
+            <div style="${estilos.header}">
+                <img src="data:image/png;base64,${logoBase64}" alt="${empresaNombre} Logo" style="max-height: 60px; margin-bottom: 5px;">
+                <h1 style="${estilos.titulo}">${empresaNombre}</h1>
+                <p style="${estilos.lema}">${empresaLema}</p>
             </div>
-            <div style="font-size: 13px; color: #666;">
-                Copia y pega este enlace en tu navegador:
+            
+            <div style="${estilos.contenido}">
+                <h2 style="color: #007bff; font-size: 20px; margin-bottom: 20px; text-align: center;">${subject}</h2>
+                ${contentHtml}
             </div>
-            <div style="${estilos.urlBox}">
-                ${resetUrl}
-            </div>
-        </div>
-        
-        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 25px 0; border-radius: 0 8px 8px 0;">
-            <div style="font-size: 14px; color: #856404;">
-                <strong>⚡ Importante:</strong> Si no solicitaste este cambio, ignora este correo. Tu cuenta está segura.
+            
+            <div style="${estilos.footer}">
+                <p>&copy; ${new Date().getFullYear()} ${empresaNombre}. Todos los derechos reservados.</p>
+                <p>Si tienes preguntas, contáctanos en <a href="mailto:${businessEmail}" style="color: #007bff;">${businessEmail}</a>.</p>
             </div>
         </div>
     `;
-
-    try {
-        const msg = {
-            to: destino,
-            from: {
-                email: process.env.EMAIL_FROM,
-                name: empresaNombre
-            },
-            subject,
-            html: await getBaseTemplate(subject, contenido),
-            text: `Hola ${nombreSaludo},\n\nPara restablecer tu contraseña, visita: ${resetUrl}\n\nSi no solicitaste este cambio, ignora este correo.\n\n${empresaNombre} - ${empresaLema}`,
-            trackingSettings: {
-                clickTracking: { enable: false },
-                openTracking: { enable: false }
-            }
-        };
-
-        const response = await sgMail.send(msg);
-        console.log('✅ Email de reset enviado correctamente a:', destino);
-        return response;
-        
-    } catch (error) {
-        console.error('❌ Error enviando email de reset:', error);
-        if (error.response) {
-            console.error('❌ Detalle:', error.response.body);
-        }
-        throw error;
-    }
 }
 
-// ==================== FUNCIÓN: CONFIRMACIÓN DE COMPRA ====================
-async function enviarCorreoCompra(destino, nombre, pdfBuffer, orderId, ordenData = {}) {
-    const subject = `${empresaNombre} - Confirmación de Compra #${orderId}`;
-    const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Cliente';
-    
-    const fechaFormateada = new Date().toLocaleDateString('es-MX', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-    });
+// --- Funciones de envío específicas ---
+
+// 1. Correo de confirmación de contacto al USUARIO
+async function enviarCorreoContacto(correo, nombre, mensaje) {
+    const subject = `✅ Mensaje Recibido | ${empresaNombre}`;
     
     const contenido = `
-        <div style="${estilos.saludo}">¡Hola ${nombreSaludo}! 🎉</div>
+        <p>Hola **${nombre}**, </p>
+        <p>Hemos recibido tu mensaje y queremos agradecerte por contactarnos. Nuestro equipo revisará tu consulta y te responderemos a la brevedad posible.</p>
         
-        <div style="${estilos.mensaje}">
-            ¡Gracias por tu confianza! Tu pedido ha sido <strong style="color: #27ae60;">confirmado exitosamente</strong> y estamos preparándolo con mucho cuidado.
+        <div style="background: #e9f7fe; border-left: 4px solid #007bff; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <p style="font-weight: bold; margin-bottom: 5px; color: #007bff;">Tu Mensaje:</p>
+            <p style="font-size: 14px; color: #555; line-height: 1.6; white-space: pre-wrap;">${mensaje}</p>
         </div>
         
-        <div style="${estilos.cajaDestacada}">
-            <div style="font-size: 16px; color: #2c3e50; font-weight: 600; margin-bottom: 15px;">
-                📋 Detalles de tu orden
-            </div>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="text-align: left;">
-                <tr>
-                    <td style="padding: 6px 0; font-size: 14px; color: #555;">
-                        <strong>Número de Orden:</strong>
-                    </td>
-                    <td style="padding: 6px 0; font-size: 14px; color: #2c3e50; font-weight: 600; text-align: right;">
-                        #${orderId}
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding: 6px 0; font-size: 14px; color: #555;">
-                        <strong>Fecha:</strong>
-                    </td>
-                    <td style="padding: 6px 0; font-size: 14px; color: #2c3e50; text-align: right;">
-                        ${fechaFormateada}
-                    </td>
-                </tr>
-                <tr>
-                    <td style="padding: 6px 0; font-size: 14px; color: #555;">
-                        <strong>Estado:</strong>
-                    </td>
-                    <td style="padding: 6px 0; font-size: 14px; color: #27ae60; font-weight: 600; text-align: right;">
-                        ✅ Confirmado
-                    </td>
-                </tr>
-            </table>
-        </div>
-        
-        <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 18px; margin: 25px 0; border-radius: 0 8px 8px 0;">
-            <div style="font-size: 14px; color: #2e7d32;">
-                📎 <strong>Factura adjunta:</strong> Hemos incluido tu factura oficial en formato PDF.
-            </div>
-        </div>
-        
-        <div style="${estilos.mensaje}">
-            Recibirás actualizaciones sobre el estado de tu pedido. Puedes consultarlo en cualquier momento desde tu cuenta.
-        </div>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/mis-ordenes" 
-               style="${estilos.boton}">
-                📊 Ver Estado de mi Pedido
-            </a>
-        </div>
-        
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 25px 0;">
-            <div style="font-size: 15px; color: #2c3e50; margin-bottom: 8px;">
-                <strong>¿Necesitas ayuda?</strong>
-            </div>
-            <div style="font-size: 14px; color: #666;">
-                Estamos aquí para ti. Contáctanos en cualquier momento.
-            </div>
-        </div>
-    `;
-
-    const msg = {
-        to: destino,
-        from: {
-            email: process.env.EMAIL_FROM,
-            name: empresaNombre
-        },
-        subject,
-        html: await getBaseTemplate(subject, contenido),
-        text: `¡Hola ${nombreSaludo}!\n\nGracias por tu compra #${orderId}. Tu pedido ha sido confirmado exitosamente.\n\nEncontrarás tu factura adjunta en este correo.\n\n${empresaNombre} - ${empresaLema}`,
-        attachments: []
-    };
-
-    if (pdfBuffer) {
-        msg.attachments.push({
-            content: pdfBuffer.toString("base64"),
-            filename: `Factura_${orderId}_Nova_Hogar.pdf`,
-            type: "application/pdf",
-            disposition: "attachment"
-        });
-    }
-
-    try {
-        const response = await sgMail.send(msg);
-        console.log('✅ Email de compra enviado correctamente a:', destino);
-        return response;
-    } catch (error) {
-        console.error('❌ Error enviando email de compra:', error);
-        throw error;
-    }
-}
-
-// ==================== FUNCIÓN: CONFIRMACIÓN CONTACTO ====================
-async function enviarCorreoContacto(destino, nombre, mensaje) {
-    const subject = `${empresaNombre} - Confirmación de Contacto`;
-    const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Cliente';
-    
-    const contenido = `
-        <div style="${estilos.saludo}">Hola ${nombreSaludo} 👋</div>
-        
-        <div style="${estilos.mensaje}">
-            Hemos recibido tu mensaje y queremos agradecerte por ponerte en contacto con nosotros.
-        </div>
-        
-        <div style="${estilos.cajaInfo}">
-            <div style="font-size: 14px; color: #2c3e50; margin-bottom: 10px;">
-                <strong>📨 Tu mensaje:</strong>
-            </div>
-            <div style="font-size: 14px; color: #555; line-height: 1.6; font-style: italic;">
-                "${mensaje}"
-            </div>
-        </div>
-        
-        <div style="${estilos.mensaje}">
-            Nuestro equipo revisará tu consulta y te responderemos lo antes posible, normalmente en <strong>24-48 horas</strong>.
-        </div>
-        
-        <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 18px; margin: 25px 0; border-radius: 0 8px 8px 0;">
-            <div style="font-size: 14px; color: #1565c0;">
-                💡 <strong>Consejo:</strong> Revisa tu bandeja de entrada regularmente para no perderte nuestra respuesta.
-            </div>
+        <p>Mientras esperas, puedes explorar nuestras últimas colecciones en nuestro sitio web.</p>
+        <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || '#'}" style="${estilos.boton}">Visitar Tienda</a>
         </div>
     `;
 
     return sgMail.send({
-        to: destino,
+        to: correo,
         from: {
             email: process.env.EMAIL_FROM,
             name: empresaNombre
         },
         subject,
-        html: await getBaseTemplate(subject, contenido),
-        text: `Hola ${nombreSaludo},\n\nHemos recibido tu mensaje: "${mensaje}"\n\nTe responderemos pronto.\n\n${empresaNombre} - ${empresaLema}`
+        html: await getBaseTemplate(subject, contenido)
     });
 }
 
-// ==================== FUNCIÓN: BIENVENIDA SUSCRIPCIÓN ====================
-async function enviarCorreoSuscripcion(destino, nombre, codigoCupon) {
-    const subject = `${empresaNombre} - ¡Bienvenido a nuestra comunidad! 🎁`;
-    const nombreSaludo = nombre && nombre !== 'undefined' ? nombre : 'Amigo';
-    
-    const contenido = `
-        <div style="${estilos.saludo}">¡Hola ${nombreSaludo}! 🎉</div>
-        
-        <div style="${estilos.mensaje}">
-            Te damos la más cordial <strong>bienvenida</strong> a la familia ${empresaNombre}. Estamos emocionados de tenerte con nosotros.
-        </div>
-        
-        <div style="background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); border: 3px dashed #4caf50; padding: 30px; text-align: center; margin: 30px 0; border-radius: 12px;">
-            <div style="font-size: 16px; color: #2e7d32; font-weight: 600; margin-bottom: 8px;">
-                🎁 TU REGALO DE BIENVENIDA
-            </div>
-            <div style="font-size: 14px; color: #388e3c; margin-bottom: 20px;">
-                Cupón de descuento exclusivo
-            </div>
-            <div style="background: white; padding: 15px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div style="font-size: 36px; font-weight: bold; color: #2e7d32; letter-spacing: 3px; font-family: 'Courier New', Courier, monospace;">
-                    ${codigoCupon}
-                </div>
-            </div>
-            <div style="font-size: 13px; color: #555; margin-top: 15px;">
-                Usa este código en tu próxima compra
-            </div>
-        </div>
-        
-        <div style="${estilos.mensaje}">
-            Como miembro de nuestra comunidad, serás el primero en conocer:
-        </div>
-        
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 20px 0;">
-            <tr>
-                <td style="padding: 10px 0; font-size: 14px; color: #555;">
-                    ✨ Nuevos productos y colecciones
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 10px 0; font-size: 14px; color: #555;">
-                    🎯 Ofertas y descuentos exclusivos
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 10px 0; font-size: 14px; color: #555;">
-                    💡 Tips y consejos de decoración
-                </td>
-            </tr>
-        </table>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/productos" 
-               style="${estilos.boton}">
-                🛍️ Explorar Productos
-            </a>
-        </div>
-    `;
-
-    return sgMail.send({
-        to: destino,
-        from: {
-            email: process.env.EMAIL_FROM,
-            name: empresaNombre
-        },
-        subject,
-        html: await getBaseTemplate(subject, contenido),
-        text: `¡Hola ${nombreSaludo}!\n\nBienvenido a ${empresaNombre}.\n\nTu cupón de descuento: ${codigoCupon}\n\nÚsalo en tu próxima compra.\n\n${empresaNombre} - ${empresaLema}`
-    });
-}
-
-// ==================== FUNCIÓN: MENSAJE INTERNO ====================
+// 2. Correo interno para la EMPRESA con un nuevo mensaje de contacto
 async function enviarMensajeInterno(nombre, correo, mensaje) {
-    const businessEmail = process.env.EMAIL_FROM;
-    const subject = `📩 [CONTACTO WEB] Nuevo Mensaje de ${nombre}`;
+    const subject = `🔔 NUEVO CONTACTO de ${nombre} | ${empresaNombre}`;
     
     const contenido = `
-        <div style="${estilos.saludo}">📬 Nuevo mensaje recibido</div>
+        <p style="font-size: 16px; font-weight: 600;">Se ha recibido un nuevo mensaje de contacto desde el sitio web.</p>
         
-        <div style="${estilos.cajaDestacada}">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="text-align: left;">
+        <div style="border: 1px solid #ced4da; border-radius: 8px; padding: 20px; background-color: #ffffff; margin: 25px 0;">
+            <table style="width: 100%; border-collapse: collapse;">
                 <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #555; width: 100px;">
-                        <strong>👤 Nombre:</strong>
-                    </td>
-                    <td style="padding: 8px 0; font-size: 14px; color: #2c3e50;">
-                        ${nombre}
-                    </td>
+                    <td style="padding: 8px 0; font-weight: 600; color: #343a40; width: 30%;">👤 Nombre:</td>
+                    <td style="padding: 8px 0; color: #495057; width: 70%;">${nombre}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #555;">
-                        <strong>📧 Correo:</strong>
-                    </td>
-                    <td style="padding: 8px 0; font-size: 14px; color: #2c3e50;">
-                        <a href="mailto:${correo}" style="color: #4a6fa5; text-decoration: none;">
-                            ${correo}
-                        </a>
-                    </td>
+                    <td style="padding: 8px 0; font-weight: 600; color: #343a40;">📧 Correo:</td>
+                    <td style="padding: 8px 0; color: #007bff;"><a href="mailto:${correo}" style="color: #007bff; text-decoration: none;">${correo}</a></td>
                 </tr>
                 <tr>
-                    <td style="padding: 8px 0; font-size: 14px; color: #555;">
-                        <strong>🕐 Fecha:</strong>
-                    </td>
-                    <td style="padding: 8px 0; font-size: 14px; color: #2c3e50;">
-                        ${new Date().toLocaleString('es-MX', { 
-                            dateStyle: 'full', 
-                            timeStyle: 'short' 
+                    <td style="padding: 8px 0; font-weight: 600; color: #343a40;">🕐 Fecha:</td>
+                    <td style="padding: 8px 0; color: #495057;">
+                        ${new Date().toLocaleDateString('es-MX', {
+                            year: 'numeric', month: 'long', day: 'numeric', 
+                            hour: '2-digit', minute: '2-digit'
                         })}
                     </td>
                 </tr>
@@ -560,15 +173,134 @@ async function enviarMensajeInterno(nombre, correo, mensaje) {
         replyTo: correo,
         subject,
         html: await getBaseTemplate(subject, contenido),
-        text: `Nuevo mensaje de contacto\n\nNombre: ${nombre}\nCorreo: ${correo}\nFecha: ${new Date().toLocaleString('es-MX')}\n\nMensaje:\n${mensaje}`
+        text: `Nuevo mensaje de contacto\n\nNombre: ${nombre}\nCorreo: ${correo}\nMensaje:\n${mensaje}`
     });
 }
 
+// 3. Correo de confirmación de SUSCRIPCIÓN con cupón
+async function enviarCorreoSuscripcion(correo, nombre, codigoCupon) {
+    const subject = `🎉 ¡Bienvenido/a a ${empresaNombre}! Tu cupón de regalo`;
+    
+    const contenido = `
+        <p>Hola **${nombre}**, </p>
+        <p>¡Gracias por unirte a nuestra comunidad! Nos emociona tenerte a bordo. Como agradecimiento por tu suscripción, te regalamos un cupón de descuento para tu primera compra.</p>
+        
+        <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #e6ffed; border: 2px dashed #28a745; border-radius: 8px;">
+            <p style="font-size: 14px; color: #28a745; margin: 0;">Tu código de cupón:</p>
+            <p style="font-size: 32px; font-weight: bold; color: #007bff; letter-spacing: 2px; margin: 10px 0;">${codigoCupon}</p>
+            <p style="font-size: 14px; color: #555; margin: 0;">Válido para un 10% de descuento en tu próxima compra.</p>
+        </div>
+        
+        <p>¡Te esperamos!</p>
+        <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || '#'}" style="${estilos.boton}">Comprar Ahora</a>
+        </div>
+    `;
+
+    return sgMail.send({
+        to: correo,
+        from: {
+            email: process.env.EMAIL_FROM,
+            name: empresaNombre
+        },
+        subject,
+        html: await getBaseTemplate(subject, contenido),
+        text: `¡Bienvenido/a! Tu cupón de descuento es: ${codigoCupon}`
+    });
+}
+
+// 4. Correo de COMPRA/FACTURA con PDF adjunto
+async function enviarCorreoCompra(correo, nombre, pdfBuffer, ordenId, detalles) {
+    const subject = `📦 Tu Orden #${ordenId} de ${empresaNombre}`;
+    
+    const contenido = `
+        <p>Hola **${nombre}**, </p>
+        <p>¡Tu compra ha sido procesada con éxito! Adjunto encontrarás la nota de tu pedido (**Orden #${ordenId}**) en formato PDF.</p>
+        
+        <div style="border: 1px solid #ced4da; border-radius: 8px; padding: 20px; background-color: #ffffff; margin: 25px 0;">
+            <p style="font-weight: 600; color: #343a40; margin-bottom: 10px;">Resumen del Pedido:</p>
+            <table style="width: 100%; font-size: 14px; color: #495057;">
+                <tr>
+                    <td style="padding: 5px 0;">**ID de Orden:**</td>
+                    <td style="padding: 5px 0; text-align: right;">#${ordenId}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0;">**Fecha:**</td>
+                    <td style="padding: 5px 0; text-align: right;">${new Date(detalles.fecha_creacion).toLocaleDateString('es-MX', { dateStyle: 'long', timeStyle: 'short' })}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 5px 0;">**Método de Pago:**</td>
+                    <td style="padding: 5px 0; text-align: right;">${detalles.metodo_pago}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <p>Agradecemos tu confianza. Si tienes alguna duda, no dudes en contactarnos.</p>
+        
+        <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL}/orders/${ordenId}" style="${estilos.boton} background-color: #28a745;">Ver Estado de la Orden</a>
+        </div>
+    `;
+
+    return sgMail.send({
+        to: correo,
+        from: {
+            email: process.env.EMAIL_FROM,
+            name: empresaNombre
+        },
+        subject,
+        html: await getBaseTemplate(subject, contenido),
+        attachments: [
+            {
+                content: pdfBuffer.toString('base64'),
+                filename: `Factura_NovaHogar_Orden_${ordenId}.pdf`,
+                type: 'application/pdf',
+                disposition: 'attachment'
+            }
+        ]
+    });
+}
+
+// 5. Correo de Recuperación de Contraseña
+async function enviarCorreoReset(correo, nombre, resetURL) {
+    const subject = `🔒 Solicitud de Restablecimiento de Contraseña | ${empresaNombre}`;
+    
+    const contenido = `
+        <p>Hola **${nombre}**, </p>
+        <p>Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en ${empresaNombre}.</p>
+        
+        <p style="font-weight: bold; color: #dc3545;">Si no solicitaste este cambio, puedes ignorar este correo.</p>
+        
+        <p>Para crear una nueva contraseña, haz clic en el siguiente enlace. Este enlace es válido por **1 hora**.</p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetURL}" 
+               style="${estilos.boton} background-color: #dc3545;">
+                Restablecer Contraseña
+            </a>
+        </div>
+        
+        <p>Si tienes problemas para hacer clic, copia y pega esta URL en tu navegador:</p>
+        <p style="font-size: 12px; word-break: break-all;"><a href="${resetURL}">${resetURL}</a></p>
+    `;
+
+    return sgMail.send({
+        to: correo,
+        from: {
+            email: process.env.EMAIL_FROM,
+            name: empresaNombre
+        },
+        subject,
+        html: await getBaseTemplate(subject, contenido),
+        text: `Restablece tu contraseña haciendo clic en el siguiente enlace (válido por 1 hora): ${resetURL}`
+    });
+}
+
+
 module.exports = {
     enviarCorreoContacto,
-    enviarCorreoSuscripcion,
-    enviarCorreoCompra,
-    enviarCorreoReset,
-    enviarMensajeInterno
+    enviarMensajeInterno, // Nueva función
+    enviarCorreoSuscripcion, // Nueva función
+    enviarCorreoCompra, // Nueva función
+    enviarCorreoReset // Nueva función
 };
-
