@@ -116,14 +116,16 @@ exports.finalizePurchase = async (req, res) => {
         await conn.beginTransaction();
 
         const orden = await OrderModel.getOrderById(orderId);
-        const cartItems = await OrderModel.getOrderDetails(orderId);
+        const cartItems = orden && orden.detalles ? orden.detalles : [];
 
         if (!orden || !cartItems || cartItems.length === 0 || orden.usuario_id !== req.userId) {
-            return res.status(400).json({ error: 'Orden inválida o carrito vacío' });
+            await conn.rollback();
+            return res.status(400).json({ error: 'Orden inválida o no pertenece al usuario' });
         }
 
         for (const item of cartItems) {
-            await OrderModel.registerSale(conn, orderId, item.cat || 'General', item.subtotal);
+            const categoria = item.cat || 'General';
+            await OrderModel.registerSale(conn, orderId, categoria, item.subtotal);
         }
 
         if (orden.cupon_id) {
@@ -131,6 +133,7 @@ exports.finalizePurchase = async (req, res) => {
         }
 
         await CartModel.clearCart(conn, orden.usuario_id);
+
         await conn.commit();
 
         const pdfBuffer = await generarNotaCompraPDF(orden);
@@ -161,6 +164,6 @@ exports.finalizePurchase = async (req, res) => {
         console.error('Error al finalizar compra:', error);
         res.status(500).json({ error: 'Error al procesar la compra', success: false });
     } finally {
-        if (conn) conn.release();
+        if (conn) conn.release && conn.release();
     }
 };
