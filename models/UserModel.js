@@ -36,52 +36,17 @@ async function createUser(nombre, correo, contraseñaHash, pais, tipo = 'cliente
 // Obtener usuario completo para login (incluye intentos y bloqueo)
 async function getUserForLogin(nombre) {
     const [rows] = await pool.query(
-        'SELECT id, nombre, passwd, tipo, correo, intentos_fallidos, bloqueo_hasta FROM usuarios WHERE nombre = ?', 
+        'SELECT id, nombre, correo, passwd, tipo, intentos_fallidos, bloqueo_hasta FROM usuarios WHERE nombre = ? LIMIT 1',
         [nombre]
     );
     return rows.length > 0 ? rows[0] : null;
 }
 
-// Obtener usuario por ID (sin password)
-async function getUserById(id) {
-    const [rows] = await pool.query(
-        'SELECT id, nombre, correo, tipo, pais FROM usuarios WHERE id = ?', 
-        [id]
-    );
-    return rows.length > 0 ? rows[0] : null;
-}
-
-// Obtener todos los usuarios (ADMIN)
-async function getAllUsers() {
-    const [rows] = await pool.query(
-        'SELECT id, nombre, correo, tipo, pais, suscrito, fecha_creacion FROM usuarios ORDER BY id'
-    );
-    return rows;
-}
-
-// Actualizar la contraseña de un usuario por id
-async function updatePassword(id, contraseñaHash) {
+// Actualizar la contraseña del usuario
+async function updatePassword(userId, newPasswordHash) {
     const [result] = await pool.query(
-        'UPDATE usuarios SET passwd = ? WHERE id = ?',
-        [contraseñaHash, id]
-    );
-    return result.affectedRows;
-}
-
-// Actualizar detalles básicos de usuario
-async function updateUserDetails(id, nombre, correo, pais) {
-    const [result] = await pool.query(
-        'UPDATE usuarios SET nombre = ?, correo = ?, pais = ? WHERE id = ?',
-        [nombre, correo, pais, id]
-    );
-    return result.affectedRows;
-}
-
-// Eliminar usuario
-async function deleteUser(id) {
-    const [result] = await pool.query(
-        'DELETE FROM usuarios WHERE id = ?',
-        [id]
+        'UPDATE usuarios SET passwd = ?, intentos_fallidos = 0, bloqueo_hasta = NULL WHERE id = ?',
+        [newPasswordHash, userId]
     );
     return result.affectedRows;
 }
@@ -125,16 +90,44 @@ async function resetLoginAttempts(nombre) {
     );
 }
 
+// Métodos CRUD (Asumiendo que existen para ser usados por users.Controller.js)
+async function getAllUsers() {
+    const [rows] = await pool.query('SELECT id, nombre, correo, tipo, pais, suscrito FROM usuarios');
+    return rows;
+}
+
+async function getUserById(id) {
+    const [rows] = await pool.query('SELECT id, nombre, correo, tipo, pais, suscrito FROM usuarios WHERE id = ?', [id]);
+    return rows.length > 0 ? rows[0] : null;
+}
+
+async function updateUserDetails(id, nombre, correo, pais) {
+    const [result] = await pool.query(
+        'UPDATE usuarios SET nombre = ?, correo = ?, pais = ? WHERE id = ?',
+        [nombre, correo, pais, id]
+    );
+    return result.affectedRows;
+}
+
+async function deleteUser(id) {
+    const [result] = await pool.query(
+        'DELETE FROM usuarios WHERE id = ?',
+        [id]
+    );
+    return result.affectedRows;
+}
+
+
 module.exports = {
     getUserByCorreo,
     setSuscritoByCorreo,
     createUser,
     getUserForLogin,
-    getUserById,
     updatePassword,
-    getAllUsers,
-    updateUserDetails,
-    deleteUser,
     incrementLoginAttempts,
     resetLoginAttempts,
+    getAllUsers,
+    getUserById,
+    updateUserDetails,
+    deleteUser
 };
