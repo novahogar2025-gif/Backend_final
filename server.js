@@ -4,25 +4,16 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Aviso/validación ligera de variables de entorno críticas
-const requiredEnv = [
-  'JWT_SECRET',
-  'DB_HOST', 'DB_USER', 'DB_NAME'
-];
-const missing = requiredEnv.filter(k => !process.env[k]);
-if (missing.length) {
-  console.warn(`⚠️ Atención: faltan variables de entorno recomendadas: ${missing.join(', ')}. Añádelas en Render si es necesario.`);
-}
-
-// Lista de orígenes permitidos
+// --- Configuración de CORS ---
+// Define quién puede consultar tu API
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   'https://jetzan.github.io'
 ];
 
-// Configuración de CORS
 app.use(cors({
   origin: function (origin, callback) {
+    // Permitir peticiones sin origen (como Postman) o de orígenes permitidos
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -32,31 +23,16 @@ app.use(cors({
   credentials: true
 }));
 
+// --- Middlewares Globales ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// HEALTH CHECK
+// --- Health Check (Vital para despliegue) ---
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'NovaHogar API is running',
-    timestamp: new Date().toISOString()
-  });
+  res.status(200).send('OK');
 });
 
-app.get('/', (req, res) => {
-  res.json({
-    message: 'NovaHogar API',
-    version: '1.0.0',
-    endpoints: {
-      auth: '/api/auth',
-      products: '/api/products',
-      cart: '/api/cart'
-    }
-  });
-});
-
-// Rutas
+// --- Rutas de la API ---
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/products', require('./routes/productsRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
@@ -68,13 +44,12 @@ app.use('/api/admin/stats', require('./routes/adminStatsRoutes'));
 app.use('/api/coupons', require('./routes/couponsRoutes'));
 app.use('/api/users', require('./routes/usersRoutes'));
 
-// 404 Handler
+// --- Manejo de 404 (Ruta no encontrada) ---
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-// Iniciar servidor
+// --- Iniciar Servidor ---
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor en puerto ${PORT}`);
-  console.log(`📍 Health: ${process.env.HEALTH_URL || `http://localhost:${PORT}/health`}`);
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
