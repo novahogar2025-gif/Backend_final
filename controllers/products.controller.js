@@ -25,10 +25,13 @@ exports.getImagenesPorProducto = async (req, res) => {
         const lista = [];
 
         if (producto.url_imagen_principal) {
-            lista.push({ 
+            return res.json([{ 
+                id: idProduct,
                 nombre: `principal_${idProducto}`,
-                url: producto.url_imagen_principal
-            });
+                url: producto.url_imagen_principal,
+                es_principal: true,
+                orden: 1
+            }]);
         }
         
         // NOTA: Si tienes múltiples imágenes para un producto, se necesitaría una
@@ -118,4 +121,5 @@ exports.getAllProducts = async (req, res) => {
         console.error("❌ Error en getAllProducts:", error);
         res.status(500).json({ mensaje: "Error al obtener todos los productos" });
     }
+
 };
