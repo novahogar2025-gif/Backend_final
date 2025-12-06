@@ -1,5 +1,6 @@
-// utils/pdfGenerator.js (VERSIÓN COMPLETA CORREGIDA)
+// utils/pdfGenerator.js (VERSIÓN OPTIMIZADA)
 const PDFDocument = require('pdfkit');
+const axios = require('axios');
 
 // Cache para el logo con timeout
 let cachedLogo = null;
@@ -13,7 +14,6 @@ async function cargarLogoConFallback() {
     }
     
     try {
-        // URL del logo - verificada
         const logoUrl = 'https://res.cloudinary.com/dngutwxha/image/upload/v1765005760/logoNovaHogar_v0jgk1.png';
         console.log('🔄 Descargando logo desde:', logoUrl);
         
@@ -37,30 +37,14 @@ async function cargarLogoConFallback() {
         
     } catch (error) {
         console.warn('⚠️ No se pudo cargar el logo:', error.message);
-        console.log('🔄 Intentando con placeholder alternativo...');
-        
-        // Crear un logo simple como fallback
-        try {
-            const fallbackUrl = 'https://via.placeholder.com/120x60/2c3e50/FFFFFF?text=Nova+Hogar';
-            const fallbackResponse = await axios.get(fallbackUrl, {
-                responseType: 'arraybuffer',
-                timeout: 5000
-            });
-            
-            cachedLogo = Buffer.from(fallbackResponse.data);
-            logoCacheTime = Date.now();
-            return cachedLogo;
-        } catch (fallbackError) {
-            console.warn('⚠️ No se pudo cargar ningún logo');
-            return null;
-        }
+        return null;
     }
 }
 
 function formatCurrency(value) {
     const num = Number(value || 0);
     if (isNaN(num)) return '$0.00';
-    return num.toLocaleString('es-MX', { 
+    return '$' + num.toLocaleString('es-MX', { 
         minimumFractionDigits: 2, 
         maximumFractionDigits: 2 
     });
@@ -72,14 +56,13 @@ async function generarNotaCompraPDF(orden) {
             console.log(`📄 Generando PDF para orden ${orden.id || 'N/A'}`);
             
             const doc = new PDFDocument({ 
-                margin: 50,
+                margin: 40,
                 size: 'A4',
                 bufferPages: true,
                 info: {
                     Title: `Factura ${orden.id || ''}`,
                     Author: 'Nova Hogar',
                     Subject: 'Factura de compra',
-                    Keywords: 'factura, compra, pedido',
                     CreationDate: new Date()
                 }
             });
@@ -92,90 +75,76 @@ async function generarNotaCompraPDF(orden) {
             });
             doc.on('error', reject);
 
-            // Dimensiones
+            // Dimensiones y configuración
             const pageWidth = 595.28;
             const pageHeight = 841.89;
-            const margin = 50;
+            const margin = 40;
             const contentWidth = pageWidth - (margin * 2);
-
-            // --- ENCABEZADO CON LOGO ---
-            let headerHeight = 80;
-            const logoX = margin;
-            const logoY = margin;
             
+            let currentY = margin;
+
+            // ==================== ENCABEZADO ====================
             try {
                 const logoBuffer = await cargarLogoConFallback();
                 
                 if (logoBuffer) {
-                    // Insertar logo con tamaño controlado
-                    doc.image(logoBuffer, logoX, logoY, {
-                        width: 120,
-                        height: 60,
-                        fit: [120, 60]
+                    // Logo a la izquierda
+                    doc.image(logoBuffer, margin, currentY, {
+                        width: 100,
+                        height: 50,
+                        fit: [100, 50]
                     });
                     
-                    // Nombre de la empresa - CORREGIDO: "Nova Hogar" no "NOVA Hogar"
+                    // Texto de la empresa junto al logo
                     doc.font('Helvetica-Bold')
-                       .fontSize(22)
+                       .fontSize(20)
                        .fillColor('#2c3e50')
-                       .text('Nova Hogar', margin + 130, margin + 10);
+                       .text('Nova Hogar', margin + 110, currentY + 5);
                     
-                    // Lema completo - CORREGIDO
                     doc.font('Helvetica-Oblique')
-                       .fontSize(11)
+                       .fontSize(9)
                        .fillColor('#4a6fa5')
-                       .text('DECORA TU VIDA, DECORA TU HOGAR', margin + 130, margin + 35);
+                       .text('DECORA TU VIDA, DECORA TU HOGAR', margin + 110, currentY + 30);
                        
                 } else {
                     // Fallback sin imagen
                     doc.font('Helvetica-Bold')
-                       .fontSize(24)
+                       .fontSize(20)
                        .fillColor('#2c3e50')
-                       .text('Nova Hogar', margin, margin + 10);
+                       .text('Nova Hogar', margin, currentY);
                     
                     doc.font('Helvetica-Oblique')
-                       .fontSize(12)
+                       .fontSize(9)
                        .fillColor('#4a6fa5')
-                       .text('DECORA TU VIDA, DECORA TU HOGAR', margin, margin + 40);
-                    
-                    headerHeight = 60;
+                       .text('DECORA TU VIDA, DECORA TU HOGAR', margin, currentY + 25);
                 }
             } catch (error) {
                 console.warn('Error en encabezado:', error.message);
-                // Continuar sin logo
-                doc.font('Helvetica-Bold')
-                   .fontSize(24)
-                   .fillColor('#2c3e50')
-                   .text('Nova Hogar', margin, margin);
             }
 
-            // --- INFORMACIÓN DE FACTURA (derecha) ---
+            // ==================== INFO FACTURA (DERECHA) ====================
             const facturaWidth = 200;
             const facturaX = pageWidth - margin - facturaWidth;
-            const facturaY = margin;
             
-            // Marco con fondo
-            doc.roundedRect(facturaX, facturaY, facturaWidth, 85, 8)
-               .fillAndStroke('#f8f9fa', '#4a6fa5');
+            // Marco
+            doc.roundedRect(facturaX, currentY, facturaWidth, 75, 5)
+               .fillAndStroke('#f0f4f8', '#4a6fa5');
             
             // Título
             doc.font('Helvetica-Bold')
-               .fontSize(16)
+               .fontSize(13)
                .fillColor('#2c3e50')
-               .text('FACTURA / NOTA DE COMPRA', facturaX + 15, facturaY + 15);
-            
-            // Línea decorativa
-            doc.moveTo(facturaX + 15, facturaY + 40)
-               .lineTo(facturaX + facturaWidth - 15, facturaY + 40)
-               .stroke('#4a6fa5')
-               .lineWidth(0.8);
+               .text('FACTURA / NOTA DE COMPRA', facturaX + 10, currentY + 10, {
+                   width: facturaWidth - 20,
+                   align: 'center'
+               });
             
             // Datos
             const fecha = orden.fecha_creacion ? 
                 new Date(orden.fecha_creacion) : new Date();
             
             const facturaDatos = [
-                { label: 'N° Orden:', value: orden.id || orden._id || 'N/A' },
+                { label: 'N° Orden:', value: String(orden.id || orden._id || 'N/A') },
                 { label: 'Fecha:', value: fecha.toLocaleDateString('es-MX', {
                     day: 'numeric',
                     month: 'long',
@@ -184,35 +153,38 @@ async function generarNotaCompraPDF(orden) {
                 { label: 'Método:', value: orden.metodo_pago || 'Tarjeta de Crédito' }
             ];
             
-            let facturaYPos = facturaY + 50;
+            let facturaYPos = currentY + 32;
             facturaDatos.forEach(item => {
                 doc.font('Helvetica-Bold')
-                   .fontSize(10)
+                   .fontSize(9)
                    .fillColor('#333')
-                   .text(item.label, facturaX + 15, facturaYPos, { width: 70 });
+                   .text(item.label, facturaX + 10, facturaYPos, { width: 60, continued: false });
                 
                 doc.font('Helvetica')
-                   .fontSize(10)
+                   .fontSize(9)
                    .fillColor('#333')
-                   .text(item.value, facturaX + 85, facturaYPos, { width: 100 });
+                   .text(item.value, facturaX + 70, facturaYPos, { width: 120 });
                 
-                facturaYPos += 16;
+                facturaYPos += 13;
             });
 
-            // --- SEPARADOR ---
-            const separatorY = Math.max(margin + headerHeight, facturaY + 90) + 10;
-            doc.moveTo(margin, separatorY)
-               .lineTo(pageWidth - margin, separatorY)
+            currentY += 85; // Avanzar después del encabezado
+
+            // ==================== SEPARADOR ====================
+            doc.moveTo(margin, currentY)
+               .lineTo(pageWidth - margin, currentY)
                .stroke('#4a6fa5')
                .lineWidth(1.5);
             
-            // --- DETALLES DEL CLIENTE ---
-            const clienteY = separatorY + 25;
-            
+            currentY += 20;
+
+            // ==================== DETALLES DEL CLIENTE ====================
             doc.font('Helvetica-Bold')
-               .fontSize(14)
+               .fontSize(12)
                .fillColor('#2c3e50')
-               .text('DETALLES DEL CLIENTE', margin, clienteY);
+               .text('DETALLES DEL CLIENTE', margin, currentY);
+            
+            currentY += 18;
             
             const clienteDatos = [
                 `Nombre: ${orden.nombre_cliente || 'No especificado'}`,
@@ -222,24 +194,26 @@ async function generarNotaCompraPDF(orden) {
                 `Teléfono: ${orden.telefono || 'N/A'}`
             ];
             
-            clienteDatos.forEach((linea, index) => {
+            clienteDatos.forEach(linea => {
                 doc.font('Helvetica')
-                   .fontSize(11)
+                   .fontSize(10)
                    .fillColor('#333')
-                   .text(linea, margin, clienteY + 25 + (index * 18));
+                   .text(linea, margin, currentY);
+                currentY += 15;
             });
 
-            // --- DETALLES DE LA ORDEN ---
-            const ordenY = clienteY + (clienteDatos.length * 18) + 40;
-            
+            currentY += 10;
+
+            // ==================== TABLA DE PRODUCTOS ====================
             doc.font('Helvetica-Bold')
-               .fontSize(16)
+               .fontSize(12)
                .fillColor('#2c3e50')
-               .text('DETALLES DE LA ORDEN', margin, ordenY);
+               .text('DETALLES DE LA ORDEN', margin, currentY);
             
-            // Tabla
-            const tableTop = ordenY + 25;
-            const colWidths = [240, 100, 80, 100];
+            currentY += 18;
+            
+            // Configuración de columnas optimizada
+            const colWidths = [260, 90, 70, 90];
             const colPositions = [margin];
             
             for (let i = 1; i < colWidths.length; i++) {
@@ -247,92 +221,97 @@ async function generarNotaCompraPDF(orden) {
             }
             
             // Encabezado de tabla
-            doc.rect(margin, tableTop, contentWidth, 30)
+            doc.rect(margin, currentY, contentWidth, 25)
                .fill('#4a6fa5');
             
-            const headers = ['Producto', 'Precio Unitario', 'Cantidad', 'Subtotal'];
+            const headers = ['Producto', 'Precio Unit.', 'Cant.', 'Subtotal'];
             headers.forEach((header, index) => {
                 doc.font('Helvetica-Bold')
-                   .fontSize(12)
+                   .fontSize(10)
                    .fillColor('white')
-                   .text(header, colPositions[index] + (index === 0 ? 10 : 0), 
-                         tableTop + 9, {
-                       width: colWidths[index] - (index === 0 ? 10 : 0),
+                   .text(header, 
+                         colPositions[index] + (index === 0 ? 8 : 0), 
+                         currentY + 8, {
+                       width: colWidths[index] - (index === 0 ? 8 : 0),
                        align: index > 0 ? 'right' : 'left'
                    });
             });
             
-            // Productos
-            let currentY = tableTop + 35;
+            currentY += 25;
             
+            // Productos
             if (!orden.detalles || orden.detalles.length === 0) {
                 doc.font('Helvetica')
-                   .fontSize(11)
+                   .fontSize(10)
                    .fillColor('#666')
-                   .text('No hay productos en esta orden', margin, currentY);
+                   .text('No hay productos en esta orden', margin, currentY + 5);
                 currentY += 25;
             } else {
                 orden.detalles.forEach((item, index) => {
+                    // Verificar si necesitamos una nueva página
+                    if (currentY > pageHeight - 250) {
+                        doc.addPage();
+                        currentY = margin;
+                    }
+                    
                     // Fondo alternado
                     if (index % 2 === 0) {
-                        doc.rect(margin, currentY - 8, contentWidth, 25)
+                        doc.rect(margin, currentY, contentWidth, 22)
                            .fill('#f9f9f9');
                     }
                     
-                    // Nombre del producto
+                    const rowY = currentY + 6;
+                    
+                    // Nombre del producto (truncado si es muy largo)
                     const nombre = item.nombre_producto || 'Producto';
                     doc.font('Helvetica')
-                       .fontSize(11)
+                       .fontSize(9)
                        .fillColor('#333')
-                       .text(nombre, colPositions[0] + 10, currentY, {
-                           width: colWidths[0] - 20
+                       .text(nombre, colPositions[0] + 8, rowY, {
+                           width: colWidths[0] - 12,
+                           ellipsis: true
                        });
                     
                     // Precio
-                    doc.font('Helvetica')
-                       .fontSize(11)
-                       .fillColor('#333')
-                       .text(formatCurrency(item.precio_unitario), 
-                             colPositions[1], currentY, {
+                    doc.text(formatCurrency(item.precio_unitario), 
+                             colPositions[1], rowY, {
                            width: colWidths[1],
                            align: 'right'
                        });
                     
                     // Cantidad
-                    doc.font('Helvetica')
-                       .fontSize(11)
-                       .fillColor('#333')
-                       .text(item.cantidad || 1, colPositions[2], currentY, {
+                    doc.text(String(item.cantidad || 1), colPositions[2], rowY, {
                            width: colWidths[2],
                            align: 'right'
                        });
                     
                     // Subtotal
                     doc.font('Helvetica-Bold')
-                       .fontSize(11)
-                       .fillColor('#333')
-                       .text(formatCurrency(item.subtotal), colPositions[3], currentY, {
+                       .text(formatCurrency(item.subtotal), colPositions[3], rowY, {
                            width: colWidths[3],
                            align: 'right'
                        });
                     
-                    currentY += 25;
+                    currentY += 22;
                 });
             }
             
+            currentY += 15;
+            
             // Línea después de productos
-            doc.moveTo(margin, currentY + 15)
-               .lineTo(pageWidth - margin, currentY + 15)
+            doc.moveTo(margin, currentY)
+               .lineTo(pageWidth - margin, currentY)
                .stroke('#ddd')
                .lineWidth(0.5);
             
-            // --- TOTALES ---
-            const totalesY = Math.max(currentY + 30, pageHeight - 180);
-            const totalesWidth = 250;
+            currentY += 20;
+
+            // ==================== TOTALES ====================
+            const totalesWidth = 240;
             const totalesX = pageWidth - margin - totalesWidth;
             
             // Marco
-            doc.roundedRect(totalesX, totalesY, totalesWidth, 150, 10)
+            doc.roundedRect(totalesX, currentY, totalesWidth, 130, 8)
                .fillAndStroke('#f8f9fa', '#4a6fa5');
             
             const totales = [
@@ -344,32 +323,29 @@ async function generarNotaCompraPDF(orden) {
                 { label: 'TOTAL PAGADO:', value: Number(orden.total) || 0, bold: true }
             ];
             
-            let totalesCurrentY = totalesY + 20;
+            let totalesY = currentY + 15;
             
-            totales.forEach((item, index) => {
+            totales.forEach(item => {
                 if (item.separator) {
-                    // Línea separadora
-                    doc.moveTo(totalesX + 15, totalesCurrentY)
-                       .lineTo(totalesX + totalesWidth - 15, totalesCurrentY)
+                    doc.moveTo(totalesX + 15, totalesY)
+                       .lineTo(totalesX + totalesWidth - 15, totalesY)
                        .stroke('#4a6fa5')
                        .lineWidth(1);
-                    totalesCurrentY += 15;
+                    totalesY += 12;
                     return;
                 }
                 
-                // Estilo
                 const isBold = item.bold;
                 doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica')
-                   .fontSize(isBold ? 14 : 11);
+                   .fontSize(isBold ? 13 : 10);
                 
-                // Color
                 let color = '#333';
                 if (item.value < 0) color = '#e74c3c';
                 if (isBold) color = '#2c3e50';
                 
                 // Etiqueta
                 doc.fillColor(color)
-                   .text(item.label, totalesX + 20, totalesCurrentY, { width: 150 });
+                   .text(item.label, totalesX + 15, totalesY, { width: 140 });
                 
                 // Valor
                 const valorAbs = Math.abs(item.value);
@@ -377,16 +353,16 @@ async function generarNotaCompraPDF(orden) {
                 
                 doc.fillColor(color)
                    .text(`${signo}${formatCurrency(valorAbs)}`, 
-                         totalesX + 170, totalesCurrentY, {
-                       width: 60,
+                         totalesX + 155, totalesY, {
+                       width: 70,
                        align: 'right'
                    });
                 
-                totalesCurrentY += isBold ? 22 : 18;
+                totalesY += isBold ? 20 : 16;
             });
             
-            // --- PIE DE PÁGINA ---
-            const footerY = pageHeight - margin - 80;
+            // ==================== PIE DE PÁGINA ====================
+            const footerY = pageHeight - margin - 50;
             
             doc.moveTo(margin, footerY)
                .lineTo(pageWidth - margin, footerY)
@@ -395,42 +371,32 @@ async function generarNotaCompraPDF(orden) {
             
             // Mensaje de agradecimiento
             doc.font('Helvetica-Bold')
-               .fontSize(12)
+               .fontSize(11)
                .fillColor('#2c3e50')
-               .text('¡Gracias por tu compra!', margin, footerY + 15, {
+               .text('¡Gracias por tu compra!', margin, footerY + 10, {
                    width: contentWidth,
                    align: 'center'
                });
             
             // Contacto
             doc.font('Helvetica')
-               .fontSize(10)
-               .fillColor('#666')
-               .text('Para consultas: soporte@novahogar.com | Tel: +52 449 123 4567',
-                     margin, footerY + 35, {
-                         width: contentWidth,
-                         align: 'center'
-                     });
-            
-            // Lema
-            doc.font('Helvetica-Oblique')
                .fontSize(9)
-               .fillColor('#95a5a6')
-               .text('Nova Hogar - DECORA TU VIDA, DECORA TU HOGAR',
-                     margin, footerY + 50, {
+               .fillColor('#666')
+               .text('soporte@novahogar.com | Tel: +52 449 123 4567',
+                     margin, footerY + 25, {
                          width: contentWidth,
                          align: 'center'
                      });
             
-            // Número de página
+            // Número de página en todas las páginas
             const totalPages = doc.bufferedPageRange().count;
             for (let i = 0; i < totalPages; i++) {
                 doc.switchToPage(i);
                 doc.font('Helvetica')
-                   .fontSize(9)
+                   .fontSize(8)
                    .fillColor('#999')
                    .text(`Página ${i + 1} de ${totalPages}`,
-                         pageWidth - margin - 60, pageHeight - margin - 15);
+                         pageWidth - margin - 50, pageHeight - margin - 15);
             }
             
             // Finalizar
