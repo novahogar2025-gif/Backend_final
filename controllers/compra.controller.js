@@ -88,11 +88,11 @@ exports.processPurchase = async (req, res) => {
             total: total.toFixed(2)
         };
         
-        // Guardar orden y obtener ID
-        const ordenId = await OrderModel.createOrder(orderData);
+       // 1. Pasar 'pool' como primer argumento a createOrder
+        const ordenId = await OrderModel.createOrder(pool, orderData);
 
-        // Guardar detalles de la orden
-        await OrderModel.addOrderDetails(ordenId, cartItems);
+        // 2. Pasar 'pool' como primer argumento a addOrderDetails
+        await OrderModel.addOrderDetails(pool, ordenId, cartItems);
 
         // Actualizar stock y registrar ventas (asumiendo que las ventas se registran por detalle para estadísticas)
         for (const item of cartItems) {
@@ -100,7 +100,7 @@ exports.processPurchase = async (req, res) => {
             // Asumiendo que el modelo de producto tiene el campo 'cat' (categoría)
             const productoInfo = await ProductModel.getProductById(item.producto_id); 
             if (productoInfo) {
-                await OrderModel.registerSale(ordenId, productoInfo.cat, item.subtotal);
+                await OrderModel.registerSale(pool, ordenId, productoInfo.cat, item.subtotal);
             }
         }
 
@@ -110,7 +110,7 @@ exports.processPurchase = async (req, res) => {
         }
 
         // Vaciar carrito
-        await CartModel.clearCart(userId);
+        await CartModel.clearCart(pool,userId);
 
         // Devolver el ID de la orden. La finalización (email/PDF) se hace en /finalize
         res.json({
@@ -236,5 +236,6 @@ exports.finalizePurchase = async (req, res) => {
     }
 
 };
+
 
 
