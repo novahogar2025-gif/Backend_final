@@ -257,3 +257,24 @@ exports.completePurchase = async (req, res) => {
         }
     }
 };
+
+// POST /api/purchase/retry-email - Reenviar email si falló
+exports.retryPurchaseEmail = async (req, res) => {
+    try {
+        const { orderId } = req.body;
+        const userId = req.userId;
+
+        if (!orderId) {
+            return res.status(400).json({ error: 'ID de orden requerido' });
+        }
+        
+        res.status(200).json({
+            mensaje: 'Endpoint de reenvío - Implementación pendiente',
+            nota: 'Las órdenes se eliminan después del procesamiento para privacidad'
+        });
+
+    } catch (error) {
+        console.error('Error en retryPurchaseEmail:', error);
+        res.status(500).json({ error: 'Error al reenviar email' });
+    }
+};
