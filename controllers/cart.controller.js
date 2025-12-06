@@ -33,25 +33,24 @@ exports.addToCart = async (req, res) => {
             return res.status(400).json({ error: 'Datos inválidos' });
         }
 
-        // Verificar que el producto existe y hay stock
         const producto = await ProductModel.getProductById(producto_id);
-        if (!producto) {
-            return res.status(404).json({ error: 'Producto no encontrado' });
-        }
+        if (!producto) return res.status(404).json({ error: 'Producto no encontrado' });
 
-        if (producto.stockAC < cantidad) {
+        // Verificar si ya existe en carrito para sumar cantidades
+        const carritoActual = await CartModel.getCartByUserId(userId);
+        const itemEnCarrito = carritoActual.find(item => item.producto_id === producto_id);
+        const cantidadActualEnCarrito = itemEnCarrito ? itemEnCarrito.cantidad : 0;
+
+        if (producto.stockAC < (cantidad + cantidadActualEnCarrito)) {
             return res.status(400).json({ 
                 error: 'Stock insuficiente',
-                stockDisponible: producto.stockAC
+                mensaje: `Solo quedan ${producto.stockAC} unidades y ya tienes ${cantidadActualEnCarrito} en tu carrito.`
             });
         }
 
         await CartModel.addToCart(userId, producto_id, cantidad);
 
-        res.status(201).json({ 
-            mensaje: 'Producto agregado al carrito',
-            success: true
-        });
+        res.status(201).json({ mensaje: 'Producto agregado al carrito', success: true });
     } catch (error) {
         console.error('Error al agregar al carrito:', error);
         res.status(500).json({ error: 'Error al agregar producto al carrito' });
@@ -155,4 +154,5 @@ exports.applyCoupon = async (req, res) => {
         console.error('Error al validar cupón:', error);
         res.status(500).json({ error: 'Error al validar el cupón' });
     }
+
 };
