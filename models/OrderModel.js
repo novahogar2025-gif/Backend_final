@@ -16,7 +16,7 @@ async function createOrder(conn, orderData) {
         gastos_envio,
         cupon_descuento,
         total,
-        cupon_id // NUEVO CAMPO para rastreo
+        cupon_id
     } = orderData;
 
     const [result] = await conn.query(`
@@ -35,7 +35,6 @@ async function createOrder(conn, orderData) {
 }
 
 // Agregar detalles de la orden
-// Acepta la conexión de la transacción (`conn`) como primer argumento.
 async function addOrderDetails(conn, ordenId, items) {
     const values = items.map(item => [
         ordenId,
@@ -56,7 +55,6 @@ async function addOrderDetails(conn, ordenId, items) {
 }
 
 // Registrar venta para estadísticas
-// Acepta la conexión de la transacción (`conn`) como primer argumento.
 async function registerSale(conn, ordenId, categoria, monto) {
     const [result] = await conn.query(`
         INSERT INTO ventas (orden_id, categoria, monto) VALUES (?, ?, ?)
@@ -65,7 +63,7 @@ async function registerSale(conn, ordenId, categoria, monto) {
     return result.insertId;
 }
 
-// Obtener orden por ID con detalles
+// Obtener orden por ID con detalles (incluye categoría del producto)
 async function getOrderById(ordenId) {
     const [orden] = await pool.query(`
         SELECT * FROM ordenes WHERE id = ?
@@ -74,13 +72,42 @@ async function getOrderById(ordenId) {
     if (orden.length === 0) return null;
 
     const [detalles] = await pool.query(`
-        SELECT * FROM detalles_orden WHERE orden_id = ?
+        SELECT 
+            d.id,
+            d.producto_id,
+            d.nombre_producto,
+            d.cantidad,
+            d.precio_unitario,
+            d.subtotal,
+            p.cat
+        FROM detalles_orden d
+        LEFT JOIN productos p ON d.producto_id = p.id
+        WHERE d.orden_id = ?
     `, [ordenId]);
 
     return {
         ...orden[0],
         detalles
     };
+}
+
+// Obtener detalles de orden (si se necesita por separado)
+async function getOrderDetails(ordenId) {
+    const [detalles] = await pool.query(`
+        SELECT 
+            d.id,
+            d.producto_id,
+            d.nombre_producto,
+            d.cantidad,
+            d.precio_unitario,
+            d.subtotal,
+            p.cat
+        FROM detalles_orden d
+        LEFT JOIN productos p ON d.producto_id = p.id
+        WHERE d.orden_id = ?
+    `, [ordenId]);
+
+    return detalles;
 }
 
 // Obtener órdenes de un usuario
@@ -96,5 +123,6 @@ module.exports = {
     addOrderDetails,
     registerSale,
     getOrderById,
-    getOrdersByUserId
+    getOrdersByUserId,
+    getOrderDetails
 };
