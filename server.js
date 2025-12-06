@@ -57,7 +57,7 @@ app.use('/api/contact', require('./routes/contactRoutes'));
 app.use('/api/subscription', require('./routes/subscriptionRoutes'));
 app.use('/api/admin/stats', require('./routes/adminStatsRoutes'));
 app.use('/api/coupons', require('./routes/couponsRoutes'));
-
+app.use('/api/users', require('./routes/usersRoutes'));
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
@@ -68,3 +68,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor en puerto ${PORT}`);
   console.log("📍 Health: https://backend-final-o904.onrender.com/health");
 });
+
