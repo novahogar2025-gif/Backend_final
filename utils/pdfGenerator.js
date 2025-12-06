@@ -134,7 +134,7 @@ async function generarNotaCompraPDF(orden) {
             doc.font('Helvetica-Bold')
                .fontSize(13)
                .fillColor('#2c3e50')
-               .text('FACTURA / NOTA DE COMPRA', facturaX + 10, currentY + 14, {
+               .text('FACTURA / NOTA DE COMPRA', facturaX + 10, currentY + 8, {
                    width: facturaWidth - 20,
                    align: 'center'
                });
@@ -412,4 +412,5 @@ async function generarNotaCompraPDF(orden) {
 module.exports = {
     generarNotaCompraPDF
 };
+
 
