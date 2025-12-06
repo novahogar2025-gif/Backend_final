@@ -1,34 +1,72 @@
-// utils/emailService.js (VERSIÓN CON LOGO CORREGIDO)
+// utils/emailService.js (CON LOGO EMBEBIDO REAL)
 const sgMail = require('@sendgrid/mail');
 
-// Usa tu API Key de SendGrid
 sgMail.setApiKey(process.env.EMAIL_PASS);
 
-// URLs corregidas - Asegurar que sean accesibles
-const logoUrl = 'https://res.cloudinary.com/dngutwxha/image/upload/v1765005760/logoNovaHogar_v0jgk1.png';
 const empresaNombre = process.env.EMPRESA_NOMBRE || 'Nova Hogar';
 const empresaLema = process.env.EMPRESA_LEMA || 'DECORA TU VIDA, DECORA TU HOGAR';
 
-// Plantilla base MEJORADA con logo embebido
-function getBaseTemplate(titulo, contenido, esHtml = true) {
+// Logo como Base64 (descargado automáticamente)
+let cachedLogoBase64 = null;
+let logoCacheTime = null;
+
+async function getLogoBase64() {
+    // Cache por 1 hora
+    if (cachedLogoBase64 && logoCacheTime && (Date.now() - logoCacheTime) < 3600000) {
+        return cachedLogoBase64;
+    }
+    
+    try {
+        const logoUrl = 'https://res.cloudinary.com/dngutwxha/image/upload/v1765005760/logoNovaHogar_v0jgk1.png';
+        console.log('📥 Descargando logo para email...');
+        
+        const response = await axios.get(logoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000
+        });
+        
+        // Convertir a Base64
+        cachedLogoBase64 = Buffer.from(response.data).toString('base64');
+        logoCacheTime = Date.now();
+        
+        console.log('✅ Logo convertido a Base64');
+        return cachedLogoBase64;
+        
+    } catch (error) {
+        console.warn('⚠️ No se pudo descargar el logo para email:', error.message);
+        
+        // Crear un logo simple como texto HTML como fallback
+        return null;
+    }
+}
+
+// Plantilla con logo EMBEBIDO
+async function getBaseTemplate(titulo, contenido, esHtml = true) {
     if (!esHtml) {
         return contenido;
     }
     
-    // IMPORTANTE: Logo directamente en el HTML con fallback
-    const logoHtml = `
-        <!-- Logo con fallback robusto -->
-        <img src="${logoUrl}" 
-             alt="${empresaNombre}" 
-             style="max-width: 180px; height: auto; margin-bottom: 15px; border: 0; outline: none; display: block;"
-             width="180"
-             onerror="this.onerror=null; this.style.display='none'; document.getElementById('text-logo').style.display='block';">
-        
-        <!-- Fallback en texto que se muestra si la imagen falla -->
-        <div id="text-logo" style="display: none; color: white; font-size: 24px; font-weight: bold; margin: 15px 0;">
-            ${empresaNombre}
-        </div>
-    `;
+    // Obtener logo como Base64
+    const logoBase64 = await getLogoBase64();
+    
+    let logoHtml;
+    
+    if (logoBase64) {
+        // Logo como Base64 (siempre visible)
+        logoHtml = `
+            <img src="data:image/png;base64,${logoBase64}" 
+                 alt="${empresaNombre}" 
+                 style="max-width: 180px; height: auto; margin-bottom: 15px; border: 0; outline: none; display: block;"
+                 width="180">
+        `;
+    } else {
+        // Fallback: solo texto
+        logoHtml = `
+            <div style="color: white; font-size: 24px; font-weight: bold; margin: 15px 0; text-align: center;">
+                ${empresaNombre}
+            </div>
+        `;
+    }
     
     return `
 <!DOCTYPE html>
@@ -38,113 +76,85 @@ function getBaseTemplate(titulo, contenido, esHtml = true) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${titulo}</title>
     <style>
-        /* RESET MEJORADO PARA EMAILS */
         body, html {
-            margin: 0 !important;
-            padding: 0 !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
             line-height: 1.6;
             color: #333333;
             background-color: #f8f9fa;
-            -webkit-text-size-adjust: 100%;
-            -ms-text-size-adjust: 100%;
         }
         
-        /* Forzar tamaños en clientes de email */
-        img {
-            max-width: 100%;
-            height: auto;
-            border: 0;
-            outline: none;
-            text-decoration: none;
-            display: block;
-        }
-        
-        /* CONTENEDOR PRINCIPAL */
         .email-container {
             max-width: 600px;
             margin: 0 auto;
             background: white;
             border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        /* ENCABEZADO CON LOGO - MEJORADO */
         .header {
             background: linear-gradient(135deg, #2c3e50 0%, #4a6fa5 100%);
-            padding: 30px 20px;
+            padding: 25px 20px;
             text-align: center;
         }
         
         .company-name {
             color: white;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: bold;
             margin: 10px 0 5px 0;
-            letter-spacing: 1px;
         }
         
         .company-slogan {
             color: #ecf0f1;
-            font-size: 14px;
+            font-size: 13px;
             font-style: italic;
             margin-top: 5px;
         }
         
-        /* CONTENIDO */
         .content {
-            padding: 35px 30px;
+            padding: 30px;
         }
         
         .greeting {
             font-size: 18px;
             color: #2c3e50;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             font-weight: 600;
         }
         
         .message {
-            font-size: 16px;
+            font-size: 15px;
             color: #555555;
-            margin-bottom: 20px;
-            line-height: 1.7;
+            margin-bottom: 15px;
+            line-height: 1.6;
         }
         
-        /* BOTÓN - MEJORADO PARA EMAILS */
         .button-container {
             text-align: center;
-            margin: 35px 0;
+            margin: 25px 0;
         }
         
         .button {
             display: inline-block;
             background: linear-gradient(135deg, #4a6fa5 0%, #2c3e50 100%);
             color: white !important;
-            padding: 15px 35px;
+            padding: 12px 25px;
             text-decoration: none;
-            border-radius: 6px;
+            border-radius: 5px;
             font-weight: bold;
-            font-size: 16px;
-            min-width: 200px;
-            mso-padding-alt: 0;
-            -webkit-text-size-adjust: none;
+            font-size: 15px;
         }
         
-        /* RESPONSIVE */
         @media (max-width: 600px) {
             .content {
-                padding: 25px 20px;
+                padding: 20px;
             }
             
-            .button {
-                padding: 14px 25px;
-                font-size: 15px;
-                min-width: 180px;
-            }
-            
-            .company-name {
-                font-size: 20px;
+            .header {
+                padding: 20px 15px;
             }
         }
     </style>
@@ -161,28 +171,9 @@ function getBaseTemplate(titulo, contenido, esHtml = true) {
             ${contenido}
         </div>
         
-        <div class="footer" style="
-            background: #2c3e50;
-            color: white;
-            padding: 25px 20px;
-            text-align: center;
-            font-size: 13px;">
-            <p style="margin: 8px 0; color: #ecf0f1;">
-                © ${new Date().getFullYear()} ${empresaNombre}. Todos los derechos reservados.
-            </p>
-            <p style="margin: 8px 0; color: #ecf0f1;">
-                Este es un correo automático, por favor no responda directamente.
-            </p>
-            <p style="margin: 8px 0;">
-                <a href="mailto:soporte@novahogar.com" 
-                   style="color: #4a9fff; text-decoration: none;">
-                    📧 soporte@novahogar.com
-                </a> | 
-                <a href="tel:+524491234567" 
-                   style="color: #4a9fff; text-decoration: none;">
-                    📞 +52 449 123 4567
-                </a>
-            </p>
+        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center; font-size: 12px;">
+            <p style="margin: 5px 0;">© ${new Date().getFullYear()} ${empresaNombre}</p>
+            <p style="margin: 5px 0;">soporte@novahogar.com | +52 449 123 4567</p>
         </div>
     </div>
 </body>
@@ -452,3 +443,4 @@ module.exports = {
   enviarCorreoReset,
   enviarMensajeInterno
 };
+
