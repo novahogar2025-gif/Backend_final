@@ -1,4 +1,7 @@
-const { enviarCorreoContacto } = require('../utils/emailService');
+// controllers/contact.controller.js
+
+// 1. Importar AMBAS funciones del servicio de correo
+const { enviarCorreoContacto, enviarMensajeInterno } = require('../utils/emailService');
 
 exports.sendContactMessage = async (req, res) => {
   try {
@@ -7,8 +10,11 @@ exports.sendContactMessage = async (req, res) => {
       return res.status(400).json({ error: 'Faltan datos obligatorios' });
     }
 
-    // Enviar confirmación al usuario
-    await enviarCorreoContacto(correo, nombre, mensaje);
+    // 📬 PASO NUEVO: Enviar el mensaje real a la EMPRESA (novahogar2025@gmail.com)
+    await enviarMensajeInterno(nombre, correo, mensaje); 
+
+    // ✅ PASO EXISTENTE: Enviar la confirmación al USUARIO
+    await enviarCorreoContacto(correo, nombre, mensaje); 
 
     res.json({ mensaje: 'Mensaje recibido. Se envió confirmación por correo.' });
   } catch (error) {
