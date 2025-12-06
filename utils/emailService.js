@@ -75,10 +75,30 @@ async function enviarCorreoReset(destino, nombre, resetToken) {
     html
   });
 }
+async function enviarMensajeInterno(nombre, correo, mensaje) {
+  const businessEmail = process.env.EMAIL_FROM; // novahogar2025@gmail.com
+  const subject = `[CONTACTO WEB] Nuevo Mensaje de ${nombre}`;
+  const html = `<h2>Nuevo Mensaje de Contacto</h2>
+    <p><b>Nombre:</b> ${nombre}</p>
+    <p><b>Correo:</b> ${correo}</p>
+    <hr>
+    <p><b>Mensaje:</b></p>
+    <p>${mensaje}</p>`;
+
+  // Se envía el mensaje desde la dirección del negocio (EMAIL_FROM)
+  // hacia la misma dirección del negocio (businessEmail)
+  return sgMail.send({
+    to: businessEmail, 
+    from: process.env.EMAIL_FROM, 
+    subject,
+    html
+  });
+}
 
 module.exports = {
   enviarCorreoContacto,
   enviarCorreoSuscripcion,
   enviarCorreoCompra,
-  enviarCorreoReset
+  enviarCorreoReset,
+  enviarMensajeInterno
 };
