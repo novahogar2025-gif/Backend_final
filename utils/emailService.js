@@ -1,5 +1,6 @@
 // utils/emailService.js (CON LOGO EMBEBIDO REAL - CORREGIDO)
 const sgMail = require('@sendgrid/mail');
+const axios = require('axios'); // NECESITAS IMPORTAR AXIOS
 
 sgMail.setApiKey(process.env.EMAIL_PASS);
 
