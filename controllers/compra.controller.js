@@ -7,8 +7,16 @@ const { generarNotaCompraPDF } = require('../utils/pdfGenerator');
 const { enviarCorreoCompra } = require('../utils/emailService');
 const pool = require('../db/conexion.js');
 
+// Constantes de cálculo
+const GASTOS_ENVIO = 150.00; // Asunción de un costo fijo
+const IMPUESTOS_PORCENTAJE = 0.16; // 16% de IVA
+
 // POST /api/purchase/process - Procesar compra (MANTENER)
 exports.processPurchase = async (req, res) => {
+    // Iniciar conexión y transacción
+    const conn = await pool.getConnection();
+    await conn.beginTransaction();
+
     try {
         const userId = req.userId;
         const {
@@ -23,41 +31,53 @@ exports.processPurchase = async (req, res) => {
         } = req.body;
 
         if (!nombre_cliente || !direccion || !ciudad || !codigo_postal || !telefono || !pais || !metodo_pago) {
+            await conn.rollback();
             return res.status(400).json({ error: 'Faltan datos obligatorios' });
         }
 
         const cartItems = await CartModel.getCartByUserId(userId);
         if (!cartItems || cartItems.length === 0) {
+            await conn.rollback();
             return res.status(400).json({ error: 'El carrito está vacío' });
         }
 
-        // Verificar stock
+        // 1. Verificar stock (dentro de la transacción para atomizar)
         for (const item of cartItems) {
-            const disponible = await ProductModel.checkAvailability(item.producto_id, item.cantidad);
-            if (!disponible) {
-                return res.status(409).json({ 
-                    error: `Stock insuficiente para "${item.nombre}"` 
-                });
+            const disponible = await ProductModel.checkAvailability(item.producto_id);
+            if (disponible < item.cantidad) {
+                await conn.rollback();
+                return res.status(400).json({ error: `Stock insuficiente para ${item.nombre}. Disponible: ${disponible}` });
             }
         }
-
-        // Calcular totales
-        let subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
-        let cupon_descuento = 0;
-        const gastos_envio = 150.00;
-        const impuestos_tasa = 0.16;
+        
+        // 2. Manejo de Cupón
+        let cupon = null;
+        let descuento_porcentaje = 0;
+        let cupon_id = null;
 
         if (codigo_cupon) {
-            const cupon = await CouponModel.validateCoupon(codigo_cupon);
-            if (cupon && cupon.descuento_porcentaje) {
-                cupon_descuento = subtotal * (cupon.descuento_porcentaje / 100);
+            cupon = await CouponModel.validateCoupon(codigo_cupon);
+            if (!cupon) {
+                await conn.rollback();
+                return res.status(400).json({ error: 'Cupón inválido o expirado' });
             }
+            descuento_porcentaje = cupon.descuento_porcentaje;
+            cupon_id = cupon.id;
         }
 
-        let subtotal_despues_cupon = Math.max(subtotal - cupon_descuento, 0);
-        const impuestos = subtotal_despues_cupon * impuestos_tasa;
-        const total = subtotal_despues_cupon + impuestos + gastos_envio;
-
+        // 3. Calcular totales
+        let subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.subtotal), 0);
+        let impuestos = subtotal * IMPUESTOS_PORCENTAJE;
+        let totalAntesDescuento = subtotal + GASTOS_ENVIO + impuestos;
+        
+        let cupon_descuento_monto = 0;
+        if (descuento_porcentaje > 0) {
+            cupon_descuento_monto = totalAntesDescuento * (descuento_porcentaje / 100);
+        }
+        
+        let total = totalAntesDescuento - cupon_descuento_monto;
+        
+        // 4. Crear la Orden (usando la conexión de la transacción)
         const orderData = {
             usuario_id: userId,
             nombre_cliente,
@@ -67,205 +87,70 @@ exports.processPurchase = async (req, res) => {
             telefono,
             pais,
             metodo_pago,
-            subtotal: subtotal.toFixed(2),
+            subtotal,
             impuestos: impuestos.toFixed(2),
-            gastos_envio: gastos_envio.toFixed(2),
-            cupon_descuento: cupon_descuento.toFixed(2),
+            gastos_envio: GASTOS_ENVIO.toFixed(2),
+            cupon_descuento: cupon_descuento_monto.toFixed(2),
             total: total.toFixed(2),
-            cupon_id: codigo_cupon || null
+            cupon_id // Puede ser null
         };
-
-        const ordenId = await OrderModel.createOrder(pool, orderData);
-        await OrderModel.addOrderDetails(pool, ordenId, cartItems);
-
+        const ordenId = await OrderModel.createOrder(conn, orderData);
+        
+        // 5. Agregar Detalles de la Orden (usando la conexión)
+        await OrderModel.addOrderDetails(conn, ordenId, cartItems);
+        
+        // 6. Actualizar stock y registrar ventas (usando la conexión)
         for (const item of cartItems) {
-            await ProductModel.updateStock(item.producto_id, item.cantidad);
-            const productoInfo = await ProductModel.getProductById(item.producto_id);
-            if (productoInfo) {
-                await OrderModel.registerSale(pool, ordenId, productoInfo.cat, item.subtotal);
-            }
+            // Actualizar stock de producto (restar cantidad)
+            await ProductModel.updateStock(conn, item.producto_id, -item.cantidad); 
+            
+            // Registrar en tabla de ventas para reportes
+            await OrderModel.addSaleRecord(conn, ordenId, item);
         }
 
-        if (codigo_cupon && cupon_descuento > 0) {
-            await CouponModel.deactivateCoupon(codigo_cupon);
+        // 7. Marcar cupón como usado (usando la conexión)
+        if (cupon_id) {
+            await CouponModel.markCouponAsUsed(cupon_id);
         }
 
-        await CartModel.clearCart(pool, userId);
-
-        res.json({
-            mensaje: 'Compra procesada exitosamente',
+        // 8. Vaciar carrito (usando la conexión)
+        await CartModel.clearCart(conn, userId);
+        
+        // 9. Confirmar la transacción
+        await conn.commit();
+        
+        // Retornar solo ID de orden (el envío de email se hace en otro endpoint)
+        res.status(201).json({ 
             success: true,
-            orderId: ordenId,
-            datos: {
-                ordenId,
-                total: orderData.total,
-                fecha: new Date().toISOString(),
-                items: cartItems.length
-            }
+            mensaje: 'Compra procesada. Finaliza para recibir tu factura.',
+            ordenId
         });
 
     } catch (error) {
-        console.error('Error al procesar compra:', error);
-        res.status(500).json({ 
-            error: 'Error al procesar la compra', 
-            detalle: error.message 
-        });
-    }
-};
+        // 10. Revertir la transacción en caso de error
+        await conn.rollback();
+        console.error('❌ Error crítico en processPurchase (Transaction Rollback):', error);
+        res.status(500).json({ error: 'Error al procesar la compra', detalle: error.message });
 
-// POST /api/purchase/finalize - Finalizar compra y enviar PDF
-exports.finalizePurchase = async (req, res) => {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-        return res.status(400).json({ error: 'Falta el ID de la orden' });
-    }
-
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.beginTransaction();
-
-        // Verificar que la orden existe y pertenece al usuario
-        const orden = await OrderModel.getOrderById(orderId);
-        
-        if (!orden) {
-            await conn.rollback();
-            conn.release();
-            return res.status(404).json({ error: 'Orden no encontrada' });
-        }
-
-        if (orden.usuario_id !== req.userId) {
-            await conn.rollback();
-            conn.release();
-            return res.status(403).json({ error: 'No tienes permiso para ver esta orden' });
-        }
-
-        // Actualizar estado de la orden a "completada"
-        await conn.query(
-            'UPDATE ordenes SET estado = "completada" WHERE id = ?',
-            [orderId]
-        );
-
-        // Obtener usuario para el email
-        const usuario = await UserModel.getUserById(orden.usuario_id);
-        
-        if (!usuario) {
-            await conn.rollback();
-            conn.release();
-            return res.status(404).json({ error: 'Usuario no encontrado' });
-        }
-
-        // Generar PDF
-        const pdfBuffer = await generarNotaCompraPDF(orden);
-
-        // Enviar email con PDF
-        try {
-            await enviarCorreoCompra(
-                usuario.correo, 
-                orden.nombre_cliente, 
-                pdfBuffer, 
-                orden.id,
-                {
-                    metodo_pago: orden.metodo_pago,
-                    fecha_creacion: orden.fecha_orden || new Date().toISOString()
-                }
-            );
-
-            await conn.commit();
-
-            res.json({
-                mensaje: 'Compra finalizada. Factura enviada a tu correo electrónico.',
-                success: true,
-                orderId: orden.id,
-                email: usuario.correo,
-                datosOrden: {
-                    fecha: orden.fecha_orden,
-                    total: orden.total,
-                    estado: 'completada'
-                }
-            });
-
-        } catch (mailErr) {
-            console.error('Error enviando correo con PDF:', mailErr);
-            
-            // IMPORTANTE: Aún así completamos la orden
-            await conn.commit();
-            
-            res.status(202).json({
-                mensaje: 'Compra finalizada, pero no se pudo enviar el correo.',
-                success: true,
-                orderId: orden.id,
-                advertencia: 'Guarda este número de orden: ' + orden.id,
-                emailError: mailErr.message
-            });
-        }
-
-    } catch (error) {
-        if (conn) await conn.rollback();
-        console.error('Error al finalizar compra:', error);
-        res.status(500).json({ 
-            error: 'Error al procesar la compra', 
-            success: false 
-        });
     } finally {
-        if (conn) conn.release && conn.release();
+        // 11. Liberar la conexión
+        if (conn) conn.release();
     }
 };
 
-// GET /api/purchase/orders - Obtener órdenes del usuario
-exports.getUserOrders = async (req, res) => {
+// POST /api/purchase/finalize - Finalizar compra (enviar PDF por correo)
+exports.finalizePurchase = async (req, res) => {
     try {
         const userId = req.userId;
-        
-        const ordenes = await OrderModel.getOrdersByUserId(userId);
-        
-        // Formatear respuesta
-        const ordenesFormateadas = ordenes.map(orden => ({
-            id: orden.id,
-            fecha: orden.fecha_orden,
-            total: parseFloat(orden.total),
-            estado: orden.estado || 'completada',
-            metodo_pago: orden.metodo_pago,
-            items: orden.total_items || 0,
-            direccion: {
-                calle: orden.direccion,
-                ciudad: orden.ciudad,
-                codigo_postal: orden.codigo_postal,
-                pais: orden.pais
-            }
-        }));
+        const { ordenId } = req.body;
 
-        const summary = await OrderModel.getUserOrdersSummary(userId);
+        if (!ordenId) {
+            return res.status(400).json({ error: 'ID de orden requerido', success: false });
+        }
 
-        res.json({
-            success: true,
-            total: ordenes.length,
-            summary: {
-                total_ordenes: summary.total_ordenes,
-                total_gastado: parseFloat(summary.total_gastado) || 0,
-                ultima_compra: summary.ultima_compra
-            },
-            ordenes: ordenesFormateadas
-        });
+        // Obtener la orden completa (con sus detalles)
+        const orden = await OrderModel.getOrderById(ordenId); 
 
-    } catch (error) {
-        console.error('Error obteniendo órdenes:', error);
-        res.status(500).json({ 
-            error: 'Error al obtener las órdenes',
-            success: false 
-        });
-    }
-};
-
-// GET /api/purchase/orders/:id - Obtener detalles de una orden específica
-exports.getOrderDetails = async (req, res) => {
-    try {
-        const userId = req.userId;
-        const orderId = req.params.id;
-
-        const orden = await OrderModel.getOrderById(orderId);
-        
         if (!orden) {
             return res.status(404).json({ 
                 error: 'Orden no encontrada',
@@ -273,60 +158,90 @@ exports.getOrderDetails = async (req, res) => {
             });
         }
 
-        // Verificar que la orden pertenece al usuario
         if (orden.usuario_id !== userId) {
             return res.status(403).json({ 
-                error: 'No tienes permiso para ver esta orden',
+                error: 'No tienes permiso para esta orden',
+                success: false 
+            });
+        }
+        
+        // 1. Obtener datos del usuario para el correo
+        const usuario = await UserModel.getUserById(userId);
+        if (!usuario) {
+             return res.status(404).json({ 
+                error: 'No se encontró el usuario para enviar el correo',
                 success: false 
             });
         }
 
-        // Formatear respuesta
-        const ordenDetallada = {
-            id: orden.id,
-            fecha: orden.fecha_orden,
-            cliente: {
-                nombre: orden.nombre_cliente,
-                telefono: orden.telefono,
-                direccion: {
-                    calle: orden.direccion,
-                    ciudad: orden.ciudad,
-                    codigo_postal: orden.codigo_postal,
-                    pais: orden.pais
-                }
-            },
-            pago: {
-                metodo: orden.metodo_pago,
-                subtotal: parseFloat(orden.subtotal),
-                impuestos: parseFloat(orden.impuestos),
-                envio: parseFloat(orden.gastos_envio),
-                descuento: parseFloat(orden.cupon_descuento),
-                total: parseFloat(orden.total)
-            },
-            estado: orden.estado || 'completada',
-            cupon_usado: orden.cupon_id || null,
-            items: orden.detalles.map(item => ({
-                id: item.producto_id,
-                nombre: item.nombre_producto,
-                cantidad: item.cantidad,
-                precio_unitario: parseFloat(item.precio_unitario),
-                subtotal: parseFloat(item.subtotal),
-                categoria: item.cat,
-                imagen: item.url_imagen_principal
-            }))
-        };
+        // 2. Generar el PDF
+        const pdfBuffer = await generarNotaCompraPDF(orden);
+
+        // 3. Enviar correo con el PDF adjunto
+        await enviarCorreoCompra(
+            usuario.correo, 
+            orden.nombre_cliente, 
+            pdfBuffer, 
+            ordenId,
+            {
+                metodo_pago: orden.metodo_pago,
+                fecha_creacion: orden.fecha_orden
+            }
+        );
 
         res.json({
             success: true,
-            orden: ordenDetallada
+            mensaje: 'Compra finalizada con éxito. Se envió factura por correo electrónico.',
+            email: usuario.correo
         });
 
     } catch (error) {
-        console.error('Error obteniendo detalles de orden:', error);
+        console.error('Error en finalizePurchase:', error);
         res.status(500).json({ 
-            error: 'Error al obtener los detalles de la orden',
-            success: false 
+            error: 'Error al finalizar la compra y enviar factura',
+            detalle: error.message
         });
+    }
+};
+
+// GET /api/purchase/orders - Obtener órdenes del usuario
+exports.getUserOrders = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const orders = await OrderModel.getOrdersByUserId(userId);
+        res.json({ success: true, orders });
+    } catch (error) {
+        console.error('Error en getUserOrders:', error);
+        res.status(500).json({ error: 'Error al obtener órdenes' });
+    }
+};
+
+// GET /api/purchase/orders/:id - Obtener detalles de una orden específica
+exports.getOrderDetails = async (req, res) => {
+    try {
+        const userId = req.userId;
+        const ordenId = req.params.id;
+
+        const orden = await OrderModel.getOrderById(ordenId);
+
+        if (!orden) {
+            return res.status(404).json({ 
+                error: 'Orden no encontrada',
+                success: false 
+            });
+        }
+
+        if (orden.usuario_id !== userId) {
+            return res.status(403).json({ 
+                error: 'No tienes permiso para esta orden',
+                success: false 
+            });
+        }
+
+        res.json({ success: true, orden });
+    } catch (error) {
+        console.error('Error en getOrderDetails:', error);
+        res.status(500).json({ error: 'Error al obtener detalles de la orden' });
     }
 };
 
@@ -334,10 +249,10 @@ exports.getOrderDetails = async (req, res) => {
 exports.resendInvoice = async (req, res) => {
     try {
         const userId = req.userId;
-        const orderId = req.params.id;
+        const ordenId = req.params.id;
 
-        const orden = await OrderModel.getOrderById(orderId);
-        
+        const orden = await OrderModel.getOrderById(ordenId);
+
         if (!orden) {
             return res.status(404).json({ 
                 error: 'Orden no encontrada',
@@ -385,8 +300,8 @@ exports.resendInvoice = async (req, res) => {
     } catch (error) {
         console.error('Error en resendInvoice:', error);
         res.status(500).json({ 
-            error: 'Error al procesar la solicitud',
-            success: false 
+            error: 'Error al procesar la solicitud de reenvío',
+            detalle: error.message
         });
     }
 };
