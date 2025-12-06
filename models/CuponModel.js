@@ -49,17 +49,16 @@ async function deleteCoupon(codigo) {
 
 // Obtener todos los cupones
 async function getAllCoupons() {
-    const [rows] = await pool.query(`
-        SELECT * FROM cupones ORDER BY fecha_creacion DESC
-    `);
+    const [rows] = await pool.query('SELECT * FROM cupones');
     return rows;
 }
+
 
 module.exports = {
     validateCoupon,
     createCoupon,
+    markCouponAsUsed, // Exportar nueva función
     deactivateCoupon,
     deleteCoupon,
-    markCouponAsUsed,
     getAllCoupons
 };
