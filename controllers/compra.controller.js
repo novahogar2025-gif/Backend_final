@@ -12,7 +12,6 @@ exports.processPurchase = async (req, res) => {
     try {
         const userId = req.userId;
         const {
-            usuario_id: userId,
             nombre_cliente,
             direccion,
             ciudad,
@@ -237,4 +236,5 @@ exports.finalizePurchase = async (req, res) => {
     }
 
 };
+
 
