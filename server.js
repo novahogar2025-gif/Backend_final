@@ -9,6 +9,8 @@ const PORT = process.env.PORT || 3000;
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   'https://jetzan.github.io'
+  'http://127.0.0.1:5500', // <- Añadir esto
+  'http://localhost:5500'
 ];
 
 app.use(cors({
@@ -53,3 +55,4 @@ app.use((req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
+
